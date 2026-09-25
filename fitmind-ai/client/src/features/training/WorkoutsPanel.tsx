@@ -14,7 +14,9 @@ import { useTheme } from "../../theme/ThemeContext";
 import { searchExercises } from "./dictionary-api";
 import { getExerciseDisplayName } from "./exercise-display";
 import { WorkoutCalendar } from "./WorkoutCalendar";
+import { usePrefersReducedMotion, MOTION } from "../../components/motion";
 import { WorkoutCard } from "./WorkoutCard";
+import { WorkoutDetailSheet } from "./WorkoutDetailSheet";
 
 export interface WorkoutsPanelProps {
   deleteError: string | null;
@@ -27,6 +29,8 @@ export interface WorkoutsPanelProps {
   listError: string | null;
   onDeleteWorkout: (workoutId: string) => Promise<boolean>;
   onEditWorkout: (workoutId: string) => void;
+  /** Calendar grid or chronological list; owned by the page header. */
+  viewMode: WorkoutsViewMode;
   onLoadMoreWorkouts: () => Promise<void>;
   onRefresh: () => Promise<void>;
   onSelectWorkout: (workoutId: string) => Promise<void>;
@@ -37,65 +41,77 @@ export interface WorkoutsPanelProps {
   workouts: WorkoutSummaryDto[];
 }
 
+export type WorkoutsViewMode = "list" | "calendar";
+
 export function WorkoutsPanel(props: WorkoutsPanelProps) {
   const { theme } = useTheme();
   const exerciseNames = useExerciseNames();
-  const [collapsedWorkoutId, setCollapsedWorkoutId] = useState<string | null>(
-    null,
-  );
+  const reducedMotion = usePrefersReducedMotion();
   const [pendingDeleteWorkoutId, setPendingDeleteWorkoutId] = useState<
     string | null
   >(null);
-  const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");
+  const viewMode = props.viewMode;
   const [isListExpanded, setIsListExpanded] = useState(false);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<
     string | null
   >(null);
+  // The detail page keeps showing its workout while it slides away, so the
+  // open flag and the workout it shows are separate pieces of state.
+  const [detailWorkoutId, setDetailWorkoutId] = useState<string | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const detailWorkout =
+    props.workouts.find((workout) => workout.id === detailWorkoutId) ?? null;
 
-  useEffect(() => {
-    if (props.selectedWorkoutId !== collapsedWorkoutId) {
-      setCollapsedWorkoutId(null);
-    }
-  }, [collapsedWorkoutId, props.selectedWorkoutId]);
-
-  const workoutsForSelectedDate =
-    selectedCalendarDate === null
-      ? []
-      : props.workouts.filter(
-          (workout) =>
-            toLocalDateKey(workout.performed_at) === selectedCalendarDate,
-        );
+  // Other sessions logged the same day, so a busy day stays reachable from
+  // the detail page without an intermediate list.
+  const sameDayWorkouts = detailWorkout
+    ? getWorkoutsOnDate(
+        props.workouts,
+        toLocalDateKey(detailWorkout.performed_at),
+      )
+    : [];
 
   return (
     <Card>
-      <div style={headerStyle}>
-        <div style={{ alignItems: "baseline", display: "flex", gap: 8 }}>
+      {viewMode === "list" ? (
+        <div style={listHeaderStyle}>
           <h2 style={titleStyle}>训练记录</h2>
           <span style={{ color: theme.colors.tx3, fontSize: 12 }}>
             共 {props.workouts.length} 条
           </span>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button
-            onClick={() =>
-              setViewMode((mode) => (mode === "list" ? "calendar" : "list"))
-            }
-            style={miniButtonStyle(theme, true)}
-            type="button"
-          >
-            {viewMode === "list" ? "日历视图" : "列表视图"}
-          </button>
-          <button
-            disabled={props.isLoadingList}
-            onClick={() => void props.onRefresh()}
-            style={miniButtonStyle(theme, false)}
-            type="button"
-          >
-            {props.isLoadingList ? "刷新中..." : "刷新"}
-          </button>
-        </div>
-      </div>
+      ) : null}
 
+      <WorkoutDetailSheet
+        detail={props.selectedWorkout}
+        errorMessage={
+          props.detailError ? translateError(props.detailError) : null
+        }
+        exerciseNames={exerciseNames}
+        isDeleting={
+          detailWorkoutId !== null &&
+          props.deletingWorkoutId === detailWorkoutId
+        }
+        isLoading={props.isLoadingDetail}
+        onClose={() => {
+          setIsDetailOpen(false);
+          setSelectedCalendarDate(null);
+        }}
+        onDelete={() => {
+          if (detailWorkoutId) {
+            setPendingDeleteWorkoutId(detailWorkoutId);
+          }
+        }}
+        onEdit={() => {
+          if (detailWorkoutId) {
+            props.onEditWorkout(detailWorkoutId);
+          }
+        }}
+        onSwitchSession={(workoutId) => void openDetail(workoutId)}
+        open={isDetailOpen && detailWorkout !== null}
+        sessions={sameDayWorkouts}
+        workout={detailWorkout}
+      />
       {props.listError ? (
         <StateNotice
           description="请确认服务已启动，或稍后重试。"
@@ -170,25 +186,23 @@ export function WorkoutsPanel(props: WorkoutsPanelProps) {
       ) : null}
 
       {viewMode === "calendar" ? (
-        <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+        <div
+          key="calendar"
+          style={{ ...viewEnterStyle(reducedMotion), display: "grid", gap: 12 }}
+        >
           <WorkoutCalendar
-            onSelectDate={setSelectedCalendarDate}
+            hasMoreWorkouts={props.hasMoreWorkouts}
+            isLoadingMoreWorkouts={props.isLoadingMoreWorkouts}
+            onLoadMoreWorkouts={props.onLoadMoreWorkouts}
+            onSelectDate={(date) => void openDay(date)}
             selectedDate={selectedCalendarDate}
             token={props.token}
             workouts={props.workouts}
           />
-          {selectedCalendarDate ? (
-            <div style={listStyle}>
-              {renderWorkoutCards(workoutsForSelectedDate)}
-            </div>
-          ) : (
-            <p style={copyStyle(theme)}>
-              点选带高亮的日期，查看当天的训练记录。
-            </p>
-          )}
+          <p style={copyStyle(theme)}>点选有训练的日期，查看当天的训练详情。</p>
         </div>
       ) : (
-        <>
+        <div key="list" style={viewEnterStyle(reducedMotion)}>
           {!props.isLoadingList &&
           !props.listError &&
           props.workouts.length === 0 ? (
@@ -211,7 +225,7 @@ export function WorkoutsPanel(props: WorkoutsPanelProps) {
               {renderListFooter()}
             </div>
           ) : null}
-        </>
+        </div>
       )}
     </Card>
   );
@@ -265,33 +279,35 @@ export function WorkoutsPanel(props: WorkoutsPanelProps) {
   }
 
   function renderWorkoutCards(list: WorkoutSummaryDto[]): React.ReactNode {
-    return list.map((workout) => {
-      const isExpanded =
-        props.selectedWorkoutId === workout.id &&
-        collapsedWorkoutId !== workout.id;
-      const detail = isExpanded ? props.selectedWorkout : null;
-
-      return (
-        <WorkoutCard
-          detail={detail}
-          exerciseNames={exerciseNames}
-          isDeleting={props.deletingWorkoutId === workout.id}
-          isExpanded={isExpanded}
-          isLoadingDetail={props.isLoadingDetail}
-          key={workout.id}
-          onDelete={() => handleDeleteWorkout(workout.id)}
-          onEdit={() => props.onEditWorkout(workout.id)}
-          onEdited={() => handleWorkoutEdited(workout.id)}
-          onToggle={() => handleToggleWorkout(workout.id, isExpanded)}
-          token={props.token}
-          workout={workout}
-        />
-      );
-    });
+    return list.map((workout) => (
+      <WorkoutCard
+        isActive={isDetailOpen && detailWorkoutId === workout.id}
+        key={workout.id}
+        onOpen={() => void openDetail(workout.id)}
+        workout={workout}
+      />
+    ));
   }
 
-  async function handleDeleteWorkout(workoutId: string): Promise<void> {
-    setPendingDeleteWorkoutId(workoutId);
+  /** Calendar tap: straight to the day's first session, no list step. */
+  async function openDay(date: string | null): Promise<void> {
+    const [firstWorkout] = date ? getWorkoutsOnDate(props.workouts, date) : [];
+
+    if (!date || !firstWorkout) {
+      return;
+    }
+
+    setSelectedCalendarDate(date);
+    await openDetail(firstWorkout.id);
+  }
+
+  async function openDetail(workoutId: string): Promise<void> {
+    setDetailWorkoutId(workoutId);
+    setIsDetailOpen(true);
+
+    if (props.selectedWorkoutId !== workoutId || !props.selectedWorkout) {
+      await props.onSelectWorkout(workoutId);
+    }
   }
 
   async function confirmDeleteWorkout(workoutId: string): Promise<void> {
@@ -299,34 +315,8 @@ export function WorkoutsPanel(props: WorkoutsPanelProps) {
 
     if (didDelete) {
       setPendingDeleteWorkoutId(null);
+      setIsDetailOpen(false);
     }
-  }
-
-  async function handleToggleWorkout(
-    workoutId: string,
-    isExpanded: boolean,
-  ): Promise<void> {
-    if (isExpanded) {
-      setCollapsedWorkoutId(workoutId);
-      return;
-    }
-
-    if (
-      props.selectedWorkoutId === workoutId &&
-      collapsedWorkoutId === workoutId
-    ) {
-      setCollapsedWorkoutId(null);
-      return;
-    }
-
-    setCollapsedWorkoutId(null);
-    await props.onSelectWorkout(workoutId);
-  }
-
-  async function handleWorkoutEdited(workoutId: string): Promise<void> {
-    await props.onRefresh();
-    await props.onSelectWorkout(workoutId);
-    await props.onWorkoutEdited?.();
   }
 }
 
@@ -404,12 +394,35 @@ function useExerciseNames(): Map<string, string> {
   return exerciseNames;
 }
 
-const headerStyle: React.CSSProperties = {
-  alignItems: "center",
+const listHeaderStyle: React.CSSProperties = {
+  alignItems: "baseline",
   display: "flex",
-  gap: 12,
-  justifyContent: "space-between",
+  gap: 8,
+  marginBottom: 12,
 };
+
+/** Calendar ⇄ list swap: a short fade-rise, not a hard cut. */
+function viewEnterStyle(reducedMotion: boolean): React.CSSProperties {
+  return reducedMotion
+    ? {}
+    : {
+        animation: `fmViewIn ${MOTION.quickMs + 60}ms ${MOTION.standard} both`,
+      };
+}
+
+/** Workouts on one local day, earliest first. */
+function getWorkoutsOnDate(
+  workouts: WorkoutSummaryDto[],
+  date: string,
+): WorkoutSummaryDto[] {
+  return workouts
+    .filter((workout) => toLocalDateKey(workout.performed_at) === date)
+    .sort(
+      (left, right) =>
+        new Date(left.performed_at).getTime() -
+        new Date(right.performed_at).getTime(),
+    );
+}
 
 /** Local calendar-day key (YYYY-MM-DD) from a workout's performed_at. */
 function toLocalDateKey(performedAt: string): string {
@@ -445,21 +458,6 @@ function showMoreStyle(
 }
 
 /** Compact pill button used by the record-panel header (view toggle / refresh). */
-function miniButtonStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-  accent: boolean,
-): React.CSSProperties {
-  return {
-    background: theme.colors.divider,
-    border: "none",
-    borderRadius: 10,
-    color: accent ? theme.colors.ac : theme.colors.tx2,
-    cursor: "pointer",
-    fontSize: 11,
-    fontWeight: 700,
-    padding: "7px 11px",
-  };
-}
 
 const listStyle: React.CSSProperties = {
   display: "grid",

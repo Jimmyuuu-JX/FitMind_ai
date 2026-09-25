@@ -2,6 +2,7 @@ import { createPortal } from "react-dom";
 
 import { useTheme } from "../theme/ThemeContext";
 import { Icon } from "./Icon";
+import { presenceTransition, usePresence, type Presence } from "./motion";
 
 export interface ActionSheetProps {
   children: React.ReactNode;
@@ -23,8 +24,9 @@ export interface ActionSheetProps {
  */
 export function ActionSheet(props: ActionSheetProps) {
   const { theme } = useTheme();
+  const presence = usePresence(props.open);
 
-  if (!props.open) {
+  if (!presence.isMounted) {
     return null;
   }
 
@@ -39,11 +41,11 @@ export function ActionSheet(props: ActionSheetProps) {
         }
       }}
       role="dialog"
-      style={backdropStyle(theme)}
+      style={backdropStyle(theme, presence)}
     >
       <section
         onClick={(event) => event.stopPropagation()}
-        style={sheetStyle(theme)}
+        style={sheetStyle(theme, presence)}
       >
         <header style={headerStyle(theme)}>
           <div style={headerTitleRowStyle}>
@@ -104,8 +106,11 @@ function closeButtonStyle(
 
 function backdropStyle(
   theme: ReturnType<typeof useTheme>["theme"],
+  presence: Presence,
 ): React.CSSProperties {
   return {
+    opacity: presence.isVisible ? 1 : 0,
+    transition: presenceTransition(presence, ["opacity"]),
     alignItems: "end",
     backgroundColor: theme.isDark ? "rgba(0,0,0,0.58)" : "rgba(12,16,24,0.38)",
     bottom: 0,
@@ -122,8 +127,13 @@ function backdropStyle(
 
 function sheetStyle(
   theme: ReturnType<typeof useTheme>["theme"],
+  presence: Presence,
 ): React.CSSProperties {
   return {
+    transform: presence.isVisible
+      ? "translateY(0)"
+      : "translateY(calc(100% + 24px))",
+    transition: presenceTransition(presence, ["transform"]),
     backgroundColor: theme.colors.surf,
     border: `1px solid ${theme.colors.bdr2}`,
     borderRadius: "18px 18px 14px 14px",

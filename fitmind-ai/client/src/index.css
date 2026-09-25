@@ -42,6 +42,29 @@
   }
 }
 
+/* Training-session rows and cards growing into place (height + fade). */
+@keyframes fmreveal {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+/* Live-session status dot breathing (design pulse). */
+@keyframes fmpulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   @keyframes fmjelly {
     from,
@@ -62,6 +85,21 @@
     from,
     to {
       stroke-dashoffset: 0;
+    }
+  }
+
+  @keyframes fmreveal {
+    from,
+    to {
+      grid-template-rows: 1fr;
+      opacity: 1;
+    }
+  }
+
+  @keyframes fmpulse {
+    from,
+    to {
+      opacity: 1;
     }
   }
 }
@@ -151,4 +189,75 @@ summary::-webkit-details-marker {
 
 textarea {
   resize: vertical;
+}
+
+/* Content swaps (tab bodies, calendar ⇄ list): short fade-rise. */
+@keyframes fmViewIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 历史 ⇄ 分析: slide in from the side the tapped segment sits on. */
+@keyframes fmSlideFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fmSlideFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes fmViewIn {
+    from,
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes fmSlideFromRight {
+    from,
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes fmSlideFromLeft {
+    from,
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+/*
+ * Press feedback: a slight give on touch so taps register physically.
+ * Elements that set their own inline transform keep it (inline wins).
+ */
+@media (prefers-reduced-motion: no-preference) {
+  button:active:not(:disabled) {
+    transform: scale(0.97);
+  }
 }

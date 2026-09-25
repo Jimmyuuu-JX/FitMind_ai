@@ -8,12 +8,15 @@ import { Icon } from "../../components/Icon";
 import { useTheme } from "../../theme/ThemeContext";
 import { accentAlpha } from "../../theme/tokens";
 import { getMenstrualOverview } from "../profile/personal-tools-api";
+import { BODY_PARTS, getBodyPartColor, type BodyPart } from "./body-part";
 import {
   calculateWorkoutVolume,
   formatAccessibleCalendarVolume,
   formatCalendarVolume,
   summarizeWorkoutCalendarDays,
+  summarizeWorkoutMonth,
   toWorkoutLocalDateKey,
+  type WorkoutCalendarDaySummary,
 } from "./workout-calendar-model";
 import { getWorkoutDetail } from "./workout-api";
 
@@ -22,6 +25,11 @@ export interface WorkoutCalendarProps {
   selectedDate: string | null;
   onSelectDate: (date: string | null) => void;
   token: string | null;
+  /** Whether the server has older pages than the ones loaded. */
+  hasMoreWorkouts?: boolean | undefined;
+  isLoadingMoreWorkouts?: boolean | undefined;
+  /** Fetches the next older page; called until the viewed month is covered. */
+  onLoadMoreWorkouts?: (() => Promise<void>) | undefined;
 }
 
 const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"];
@@ -128,6 +136,40 @@ export function WorkoutCalendar(props: WorkoutCalendarProps) {
     }
   }, [fallbackVolumes, props.token, props.workouts, visibleDateKeys]);
 
+  const { hasMoreWorkouts, isLoadingMoreWorkouts, onLoadMoreWorkouts } = props;
+  const lastAutoLoadKeyRef = useRef<string | null>(null);
+
+  // The list is cursor-paged newest first, so an older month may not be loaded
+  // yet. Pull pages until the loaded range reaches back past the month start;
+  // otherwise the grid would silently show a busy month as empty.
+  useEffect(() => {
+    if (
+      !onLoadMoreWorkouts ||
+      !hasMoreWorkouts ||
+      isLoadingMoreWorkouts ||
+      isMonthFullyLoaded(viewMonth, props.workouts, true)
+    ) {
+      return;
+    }
+
+    // One attempt per (month, loaded count): a failed page leaves the count
+    // unchanged, and retrying it on every render would hammer the API.
+    const attemptKey = `${viewMonth.getTime()}:${props.workouts.length}`;
+
+    if (lastAutoLoadKeyRef.current === attemptKey) {
+      return;
+    }
+
+    lastAutoLoadKeyRef.current = attemptKey;
+    void onLoadMoreWorkouts();
+  }, [
+    hasMoreWorkouts,
+    isLoadingMoreWorkouts,
+    onLoadMoreWorkouts,
+    props.workouts,
+    viewMonth,
+  ]);
+
   useEffect(() => {
     if (!props.token) {
       return;
@@ -153,9 +195,20 @@ export function WorkoutCalendar(props: WorkoutCalendarProps) {
   const todayKey = toWorkoutLocalDateKey(new Date());
   const monthLabel = `${viewMonth.getFullYear()} 年 ${viewMonth.getMonth() + 1} 月`;
   const yearOptions = buildYearOptions(viewMonth, props.workouts);
+  const isMonthCovered = isMonthFullyLoaded(
+    viewMonth,
+    props.workouts,
+    props.hasMoreWorkouts ?? false,
+  );
+  const monthSummary = summarizeWorkoutMonth(
+    calendarWorkouts,
+    viewMonth.getFullYear(),
+    viewMonth.getMonth(),
+  );
+  const monthParts = collectMonthParts(workoutDays, viewMonth);
 
   return (
-    <div data-testid="workout-calendar" style={{ display: "grid", gap: 10 }}>
+    <div data-testid="workout-calendar" style={{ display: "grid", gap: 12 }}>
       <ActionSheet
         description="选择要查看的年份和月份。"
         footer={
@@ -215,14 +268,6 @@ export function WorkoutCalendar(props: WorkoutCalendarProps) {
 
       <div style={navRowStyle}>
         <button
-          aria-label="上个月"
-          onClick={() => goToMonth(addMonths(viewMonth, -1))}
-          style={navButtonStyle(theme)}
-          type="button"
-        >
-          ‹
-        </button>
-        <button
           aria-expanded={isMonthPickerOpen}
           aria-haspopup="dialog"
           aria-label={`选择时间范围，当前 ${monthLabel}`}
@@ -233,26 +278,75 @@ export function WorkoutCalendar(props: WorkoutCalendarProps) {
           style={monthTriggerStyle(theme)}
           type="button"
         >
+          <span style={yearLabelStyle(theme)}>{viewMonth.getFullYear()}</span>
           <span style={monthTriggerLabelStyle}>
-            <strong style={{ fontSize: 13 }}>{monthLabel}</strong>
-            <Icon name="chevron-down" size={12} />
-          </span>
-          <span style={{ color: theme.colors.tx3, fontSize: 9 }}>
-            选择月份 · 总容量（公斤）· 训练备注
+            <strong style={monthLabelStyle}>
+              {viewMonth.getMonth() + 1}月
+            </strong>
+            <Icon name="chevron-down" size={14} />
           </span>
         </button>
-        <button
-          aria-label="下个月"
-          onClick={() => goToMonth(addMonths(viewMonth, 1))}
-          style={navButtonStyle(theme)}
-          type="button"
-        >
-          ›
-        </button>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button
+            aria-label="上个月"
+            onClick={() => goToMonth(addMonths(viewMonth, -1))}
+            style={navButtonStyle(theme)}
+            type="button"
+          >
+            ‹
+          </button>
+          <button
+            aria-label="下个月"
+            onClick={() => goToMonth(addMonths(viewMonth, 1))}
+            style={navButtonStyle(theme)}
+            type="button"
+          >
+            ›
+          </button>
+        </div>
       </div>
 
-      <div data-testid="workout-calendar-grid" style={gridWrapStyle(theme)}>
-        <div style={rowGridStyle}>
+      <div
+        aria-live="polite"
+        data-testid="workout-calendar-month-summary"
+        style={monthSummaryStyle(theme)}
+      >
+        {isMonthCovered ? (
+          <>
+            <MonthStat
+              label="训练"
+              unit="天"
+              value={`${monthSummary.trainingDays}`}
+            />
+            <MonthStat
+              label="总容量"
+              unit="吨"
+              value={
+                monthSummary.totalVolume === null
+                  ? "—"
+                  : formatTonnes(monthSummary.totalVolume)
+              }
+            />
+            <MonthStat
+              label="时长"
+              unit="小时"
+              value={formatHours(monthSummary.totalMinutes)}
+            />
+          </>
+        ) : (
+          <span style={{ color: theme.colors.tx3, fontSize: 12 }}>
+            {isLoadingMoreWorkouts
+              ? "正在加载本月训练…"
+              : "本月记录暂未加载完整，可切换月份或刷新重试"}
+          </span>
+        )}
+      </div>
+
+      <div
+        data-testid="workout-calendar-grid"
+        style={{ display: "grid", gap: 4 }}
+      >
+        <div style={weekdayRowStyle(theme)}>
           {WEEKDAY_LABELS.map((label) => (
             <span key={label} style={weekdayStyle(theme)}>
               {label}
@@ -281,41 +375,31 @@ export function WorkoutCalendar(props: WorkoutCalendarProps) {
                   hasWorkout,
                   isCurrentMonth: cell.isCurrentMonth,
                   isSelected,
-                  isToday,
                 })}
                 type="button"
               >
-                <span style={dayNumberStyle(theme, isToday, isSelected)}>
-                  {cell.day}
-                </span>
+                <span style={dayNumberStyle(theme, isToday)}>{cell.day}</span>
                 {isPeriod ? (
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      alignSelf: "center",
-                      background: theme.colors.pink,
-                      borderRadius: 999,
-                      height: 4,
-                      width: 14,
-                    }}
-                  />
+                  <span aria-hidden="true" style={periodMarkStyle(theme)} />
                 ) : null}
                 {daySummary ? (
                   <>
-                    <span style={volumeBadgeStyle(theme, isSelected)}>
+                    <span style={volumeBadgeStyle(theme)}>
                       {formatCalendarVolume(daySummary.totalVolume)}
                     </span>
-                    <span style={notesStackStyle}>
-                      {daySummary.notes.map((note, noteIndex) => (
-                        <span
-                          key={`${cell.key}-${noteIndex}`}
-                          style={noteLineStyle(theme, isSelected)}
-                          title={note}
-                        >
-                          {note}
-                        </span>
-                      ))}
-                    </span>
+                    {daySummary.notes.map((note, noteIndex) => (
+                      <span
+                        key={`${cell.key}-${noteIndex}`}
+                        style={noteTagStyle(
+                          theme,
+                          daySummary.parts[noteIndex] ?? null,
+                          daySummary.notes.length > 1,
+                        )}
+                        title={note}
+                      >
+                        {note}
+                      </span>
+                    ))}
                   </>
                 ) : null}
               </button>
@@ -323,6 +407,21 @@ export function WorkoutCalendar(props: WorkoutCalendarProps) {
           })}
         </div>
       </div>
+
+      {monthParts.length > 0 ? (
+        <div aria-hidden="true" style={legendStyle(theme)}>
+          <span style={legendItemStyle}>
+            <span style={legendSwatchStyle(theme.colors.ac)} />
+            当日容量 kg
+          </span>
+          {monthParts.map((part) => (
+            <span key={part} style={legendItemStyle}>
+              <span style={legendSwatchStyle(getBodyPartColor(theme, part))} />
+              {part}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 
@@ -352,7 +451,10 @@ function buildMonthCells(monthStart: Date): DayCell[] {
   const gridStart = new Date(year, month, 1 - leadingBlanks);
   const cells: DayCell[] = [];
 
-  for (let index = 0; index < 42; index += 1) {
+  const usedCells = leadingBlanks + daysInMonth(monthStart);
+  const cellCount = Math.ceil(usedCells / 7) * 7;
+
+  for (let index = 0; index < cellCount; index += 1) {
     const date = new Date(
       gridStart.getFullYear(),
       gridStart.getMonth(),
@@ -400,8 +502,104 @@ function buildYearOptions(
   );
 }
 
+function daysInMonth(monthStart: Date): number {
+  return new Date(
+    monthStart.getFullYear(),
+    monthStart.getMonth() + 1,
+    0,
+  ).getDate();
+}
+
+/**
+ * Whether every workout in the month is among the loaded ones.
+ *
+ * Pages arrive newest first, so the month is covered once the oldest loaded
+ * workout predates the month start, or when the server has no more pages.
+ */
+function isMonthFullyLoaded(
+  monthStart: Date,
+  workouts: WorkoutSummaryDto[],
+  hasMoreWorkouts: boolean,
+): boolean {
+  if (!hasMoreWorkouts) {
+    return true;
+  }
+
+  const oldest = workouts.reduce<number>(
+    (min, workout) => Math.min(min, new Date(workout.performed_at).getTime()),
+    Number.POSITIVE_INFINITY,
+  );
+
+  return oldest < monthStart.getTime();
+}
+
+/** Body parts trained this month, in the fixed legend order. */
+function collectMonthParts(
+  days: Map<string, WorkoutCalendarDaySummary>,
+  monthStart: Date,
+): BodyPart[] {
+  const prefix = toWorkoutLocalDateKey(monthStart).slice(0, 7);
+  const seen = new Set<BodyPart>();
+
+  for (const [key, day] of days) {
+    if (!key.startsWith(prefix)) {
+      continue;
+    }
+
+    for (const part of day.parts) {
+      if (part) {
+        seen.add(part);
+      }
+    }
+  }
+
+  return BODY_PARTS.filter((part) => seen.has(part));
+}
+
+function formatTonnes(kilograms: number): string {
+  const tonnes = kilograms / 1000;
+  return tonnes >= 100 ? `${Math.round(tonnes)}` : tonnes.toFixed(1);
+}
+
+function formatHours(minutes: number): string {
+  return (minutes / 60).toFixed(1);
+}
+
+interface MonthStatProps {
+  label: string;
+  unit: string;
+  value: string;
+}
+
+function MonthStat(props: MonthStatProps) {
+  const { theme } = useTheme();
+
+  return (
+    <span style={{ display: "grid", gap: 1, minWidth: 0 }}>
+      <span style={{ color: theme.colors.tx3, fontSize: 11 }}>
+        {props.label}
+      </span>
+      <span style={{ alignItems: "baseline", display: "flex", gap: 3 }}>
+        <strong
+          style={{
+            fontSize: 20,
+            fontVariantNumeric: "tabular-nums",
+            fontWeight: 800,
+            letterSpacing: "-0.4px",
+          }}
+        >
+          {props.value}
+        </strong>
+        <span style={{ color: theme.colors.tx3, fontSize: 11 }}>
+          {props.unit}
+        </span>
+      </span>
+    </span>
+  );
+}
+
 const navRowStyle: React.CSSProperties = {
-  alignItems: "center",
+  alignItems: "flex-end",
   display: "flex",
   gap: 8,
   justifyContent: "space-between",
@@ -416,9 +614,23 @@ function monthTriggerStyle(
     borderRadius: 8,
     color: theme.colors.tx,
     cursor: "pointer",
+    display: "grid",
+    justifyItems: "start",
     minWidth: 0,
-    padding: "4px 8px",
-    textAlign: "center",
+    padding: 0,
+    textAlign: "left",
+  };
+}
+
+function yearLabelStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    color: theme.colors.tx2,
+    fontSize: 12,
+    fontVariantNumeric: "tabular-nums",
+    fontWeight: 600,
+    lineHeight: 1.2,
   };
 }
 
@@ -426,8 +638,30 @@ const monthTriggerLabelStyle: React.CSSProperties = {
   alignItems: "center",
   display: "flex",
   gap: 4,
-  justifyContent: "center",
 };
+
+const monthLabelStyle: React.CSSProperties = {
+  fontSize: 28,
+  fontVariantNumeric: "tabular-nums",
+  fontWeight: 800,
+  letterSpacing: "-0.6px",
+  lineHeight: 1.1,
+};
+
+function monthSummaryStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    alignItems: "center",
+    background: theme.colors.soft,
+    borderRadius: 14,
+    display: "grid",
+    gap: 8,
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    minHeight: 58,
+    padding: "10px 14px",
+  };
+}
 
 function pickerFieldStyle(
   theme: ReturnType<typeof useTheme>["theme"],
@@ -482,42 +716,44 @@ function navButtonStyle(
   theme: ReturnType<typeof useTheme>["theme"],
 ): React.CSSProperties {
   return {
-    background: theme.colors.divider,
-    border: "none",
-    borderRadius: 8,
+    alignItems: "center",
+    background: theme.colors.surf2,
+    border: `1px solid ${theme.colors.bdr}`,
+    borderRadius: 10,
     color: theme.colors.tx2,
     cursor: "pointer",
-    fontSize: 13,
-    padding: "5px 11px",
-  };
-}
-
-function gridWrapStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    backgroundColor: theme.colors.soft,
-    borderRadius: 14,
-    display: "grid",
-    gap: 6,
-    padding: 10,
+    display: "inline-flex",
+    fontSize: 18,
+    height: 34,
+    justifyContent: "center",
+    lineHeight: 1,
+    width: 34,
   };
 }
 
 const rowGridStyle: React.CSSProperties = {
   display: "grid",
-  gap: 3,
+  gap: "6px 3px",
   gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
 };
+
+function weekdayRowStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    ...rowGridStyle,
+    borderBottom: `1px solid ${theme.colors.divider}`,
+    paddingBottom: 6,
+  };
+}
 
 function weekdayStyle(
   theme: ReturnType<typeof useTheme>["theme"],
 ): React.CSSProperties {
   return {
     color: theme.colors.tx2,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: 700,
-    padding: "2px 0",
     textAlign: "center",
   };
 }
@@ -528,125 +764,138 @@ function dayCellStyle(
     hasWorkout: boolean;
     isCurrentMonth: boolean;
     isSelected: boolean;
-    isToday: boolean;
   },
 ): React.CSSProperties {
-  const base: React.CSSProperties = {
+  return {
     alignItems: "stretch",
-    background: "transparent",
-    border: "1px solid transparent",
+    background: state.isSelected ? accentAlpha(theme, 0.12) : "transparent",
+    border: `1px solid ${state.isSelected ? theme.colors.ac : "transparent"}`,
     borderRadius: 8,
+    color: state.isCurrentMonth ? theme.colors.tx : theme.colors.tx3,
     cursor: state.hasWorkout ? "pointer" : "default",
     display: "flex",
     flexDirection: "column",
-    fontSize: 11,
     fontVariantNumeric: "tabular-nums",
-    fontWeight: 500,
     gap: 3,
-    minHeight: 72,
+    minHeight: 64,
     minWidth: 0,
-    opacity: state.isCurrentMonth ? 1 : 0.36,
+    // Adjacent-month days stay readable as context but visibly recede.
+    opacity: state.isCurrentMonth ? 1 : 0.4,
     overflow: "hidden",
-    padding: "4px 3px",
-    transition: "all 0.2s ease",
-  };
-
-  if (state.isSelected) {
-    return {
-      ...base,
-      background: accentAlpha(theme, 0.12),
-      borderColor: theme.colors.ac,
-      color: theme.colors.tx,
-      fontWeight: 800,
-    };
-  }
-
-  if (state.hasWorkout) {
-    return {
-      ...base,
-      background: theme.colors.surf2,
-      borderColor: theme.colors.bdr,
-      color: theme.colors.tx,
-      fontWeight: 700,
-    };
-  }
-
-  return {
-    ...base,
-    color: state.isToday
-      ? theme.colors.tx
-      : state.isCurrentMonth
-        ? theme.colors.tx2
-        : theme.colors.tx3,
+    padding: "3px 2px 4px",
+    transition: "background 0.2s ease, border-color 0.2s ease",
   };
 }
 
 function dayNumberStyle(
   theme: ReturnType<typeof useTheme>["theme"],
   isToday: boolean,
-  isSelected: boolean,
 ): React.CSSProperties {
   return {
     alignItems: "center",
     alignSelf: "center",
-    background: isToday ? theme.colors.blue : "transparent",
+    background: isToday ? theme.colors.ac : "transparent",
     borderRadius: theme.radius.capsule,
-    color: isToday ? "#ffffff" : isSelected ? theme.colors.ac : "inherit",
+    color: isToday ? theme.colors.acText : "inherit",
     display: "inline-flex",
-    fontSize: 11,
-    fontWeight: isToday || isSelected ? 800 : 600,
-    height: 20,
+    fontSize: 15,
+    fontWeight: isToday ? 800 : 500,
+    height: 26,
     justifyContent: "center",
     lineHeight: 1,
-    width: 20,
+    width: 26,
+  };
+}
+
+function periodMarkStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    alignSelf: "center",
+    background: theme.colors.pink,
+    borderRadius: 999,
+    height: 3,
+    width: 14,
   };
 }
 
 function volumeBadgeStyle(
   theme: ReturnType<typeof useTheme>["theme"],
-  isSelected: boolean,
 ): React.CSSProperties {
   return {
     background: theme.colors.ac,
     borderRadius: 4,
     color: theme.colors.acText,
     display: "block",
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: 800,
+    letterSpacing: "-0.2px",
     lineHeight: "15px",
     overflow: "hidden",
-    padding: "0 2px",
     textAlign: "center",
-    textOverflow: "ellipsis",
+    textOverflow: "clip",
     whiteSpace: "nowrap",
-    ...(isSelected
-      ? { boxShadow: `0 0 0 1px ${accentAlpha(theme, 0.45)}` }
-      : {}),
   };
 }
 
-const notesStackStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 2,
-  minWidth: 0,
-};
-
-function noteLineStyle(
+/**
+ * Session tag colored by its body part. Two lines fit a typical note such as
+ * "胸肩训练 1"; with several sessions on one day each tag drops to one line.
+ */
+function noteTagStyle(
   theme: ReturnType<typeof useTheme>["theme"],
-  isSelected: boolean,
+  part: BodyPart | null,
+  isCrowded: boolean,
+): React.CSSProperties {
+  const color = getBodyPartColor(theme, part);
+  const lines = isCrowded ? 1 : 2;
+
+  const background = part ? color : theme.colors.surf3;
+
+  return {
+    background,
+    // Bottom spacing as a border, not padding: a line-clamped box clips at
+    // its padding edge, so bottom padding would show a sliver of line three.
+    borderBottom: `2px solid ${background}`,
+    borderRadius: 4,
+    color: part ? (theme.isDark ? "#0f0f0f" : "#ffffff") : theme.colors.tx2,
+    display: "-webkit-box",
+    fontSize: 10,
+    fontWeight: 700,
+    lineHeight: "13px",
+    overflow: "hidden",
+    padding: "2px 3px 0",
+    textAlign: "left",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: lines,
+    wordBreak: "break-all",
+  };
+}
+
+function legendStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
 ): React.CSSProperties {
   return {
-    background: isSelected ? accentAlpha(theme, 0.12) : theme.colors.soft,
+    color: theme.colors.tx3,
+    display: "flex",
+    flexWrap: "wrap",
+    fontSize: 11,
+    gap: "4px 12px",
+  };
+}
+
+const legendItemStyle: React.CSSProperties = {
+  alignItems: "center",
+  display: "inline-flex",
+  gap: 5,
+};
+
+function legendSwatchStyle(color: string): React.CSSProperties {
+  return {
+    background: color,
     borderRadius: 3,
-    color: theme.colors.tx,
-    display: "block",
-    fontSize: 9,
-    fontWeight: 600,
-    lineHeight: "14px",
-    overflow: "hidden",
-    padding: "0 3px",
-    textAlign: "left",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    display: "inline-block",
+    height: 8,
+    width: 8,
   };
 }

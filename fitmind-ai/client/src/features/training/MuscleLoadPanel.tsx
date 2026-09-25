@@ -1,7 +1,10 @@
 import { Card } from "../../components/Card";
 import { StateNotice } from "../../components/StateNotice";
 import { useTheme } from "../../theme/ThemeContext";
-import type { MuscleLoadGroup, MuscleLoadResponse } from "./muscle-load-api";
+import type { MuscleLoadResponse } from "./muscle-load-api";
+
+import { getBodyPartColor } from "./body-part";
+import { buildBodyPartShares, type BodyPartShare } from "./weekly-trend-model";
 
 export interface MuscleLoadPanelProps {
   errorMessage: string | null;
@@ -23,6 +26,7 @@ export function MuscleLoadPanel(props: MuscleLoadPanelProps) {
   const { theme } = useTheme();
   const { errorMessage, isLoading, muscleLoad } = props;
   const groups = muscleLoad?.by_muscle_group ?? [];
+  const shares = buildBodyPartShares(groups);
   const hasNoWorkouts =
     muscleLoad !== null &&
     muscleLoad.totals.workout_count === 0 &&
@@ -36,8 +40,8 @@ export function MuscleLoadPanel(props: MuscleLoadPanelProps) {
     <Card>
       <div style={bodyStyle}>
         <div style={headerRowStyle}>
-          <h3 style={titleStyle}>肌群容量占比</h3>
-          <span style={eyebrowStyle(theme)}>加权容量口径</span>
+          <h3 style={titleStyle}>部位容量占比</h3>
+          <span style={eyebrowStyle(theme)}>加权口径 · 点开看细分肌群</span>
         </div>
 
         {errorMessage ? (
@@ -73,11 +77,11 @@ export function MuscleLoadPanel(props: MuscleLoadPanelProps) {
         {groups.length > 0 ? (
           <>
             <div style={listStyle(theme)}>
-              {groups.map((group, index) => (
-                <MuscleShareRow
-                  color={getGroupColor(theme, index)}
-                  group={group}
-                  key={group.muscle_group_id}
+              {shares.map((share) => (
+                <BodyPartShareRow
+                  color={getBodyPartColor(theme, share.part)}
+                  key={share.part}
+                  share={share}
                 />
               ))}
             </div>
@@ -102,49 +106,81 @@ export function MuscleLoadPanel(props: MuscleLoadPanelProps) {
   );
 }
 
-interface MuscleShareRowProps {
+interface BodyPartShareRowProps {
   color: string;
-  group: MuscleLoadGroup;
+  share: BodyPartShare;
 }
 
-function MuscleShareRow(props: MuscleShareRowProps) {
+/**
+ * One body part's share, expandable into the fine-grained groups behind it.
+ * Child percentages are shares of the same range total, so they add up to
+ * the part's figure.
+ */
+function BodyPartShareRow(props: BodyPartShareRowProps) {
   const { theme } = useTheme();
-  const { color, group } = props;
-  const sharePercent = clampPercent(group.contribution_ratio * 100);
+  const { color, share } = props;
+  const sharePercent = clampPercent(share.ratio * 100);
+  const total = share.ratio > 0 ? share.weightedVolume / share.ratio : 0;
 
   return (
-    <div style={rowStyle(theme)}>
-      <div style={rowHeaderStyle}>
-        <span style={rowLabelStyle}>
-          <span style={dotStyle(color)} />
-          <span style={rowNameStyle(theme)}>{group.muscle_group_name}</span>
-        </span>
-        <span style={rowValueStyle(theme)}>{formatPercent(sharePercent)}</span>
-      </div>
-      <div style={trackStyle(theme)}>
-        <div style={fillStyle(color, sharePercent)} />
-      </div>
-    </div>
+    <details style={rowStyle(theme)}>
+      <summary style={{ display: "grid", gap: 7 }}>
+        <div style={rowHeaderStyle}>
+          <span style={rowLabelStyle}>
+            <span style={dotStyle(color)} />
+            <span style={rowNameStyle(theme)}>{share.part}</span>
+            {share.groups.length > 1 ? (
+              <span style={{ color: theme.colors.tx3, fontSize: 11 }}>
+                {share.groups.length} 个肌群
+              </span>
+            ) : null}
+          </span>
+          <span style={rowValueStyle(theme)}>
+            {formatPercent(sharePercent)}
+          </span>
+        </div>
+        <div style={trackStyle(theme)}>
+          <div style={fillStyle(color, sharePercent)} />
+        </div>
+      </summary>
+      <ul style={childListStyle(theme)}>
+        {share.groups.map((group) => (
+          <li key={group.muscle_group_id} style={childRowStyle}>
+            <span>{group.muscle_group_name}</span>
+            <span style={{ fontVariantNumeric: "tabular-nums" }}>
+              {formatPercent(
+                clampPercent(
+                  total > 0 ? (group.weighted_volume / total) * 100 : 0,
+                ),
+              )}{" "}
+              · {group.set_count} 组
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
-/** Rank-ordered dot colors, mirroring the design's neon → blue → amber → red. */
-function getGroupColor(
+function childListStyle(
   theme: ReturnType<typeof useTheme>["theme"],
-  index: number,
-): string {
-  const palette = [
-    theme.colors.ac,
-    theme.colors.blue,
-    theme.colors.orange,
-    theme.colors.red,
-    theme.colors.purple,
-    theme.colors.green,
-    theme.colors.pink,
-  ];
-
-  return palette[index % palette.length] ?? theme.colors.ac;
+): React.CSSProperties {
+  return {
+    color: theme.colors.tx2,
+    display: "grid",
+    fontSize: 12,
+    gap: 6,
+    listStyle: "none",
+    margin: "10px 0 0",
+    padding: "0 0 0 16px",
+  };
 }
+
+const childRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  justifyContent: "space-between",
+};
 
 function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, value));

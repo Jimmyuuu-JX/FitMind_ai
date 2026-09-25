@@ -308,6 +308,10 @@ export function App() {
 
 function tabSectionStyle(isActive: boolean): React.CSSProperties {
   return {
+    // Bottom-tab switches fade-rise the incoming page instead of cutting.
+    animation: isActive
+      ? "fmViewIn 240ms cubic-bezier(0.2, 0, 0, 1) both"
+      : undefined,
     display: isActive ? "grid" : "none",
     gap: 16,
     paddingBottom: 16,

@@ -6,6 +6,7 @@ import {
   calculateWorkoutVolume,
   formatCalendarVolume,
   summarizeWorkoutCalendarDays,
+  summarizeWorkoutMonth,
 } from "./workout-calendar-model";
 
 describe("summarizeWorkoutCalendarDays", () => {
@@ -29,6 +30,7 @@ describe("summarizeWorkoutCalendarDays", () => {
     expect([...summaries.values()]).toEqual([
       {
         notes: ["胸部力量训练", "未填写备注"],
+        parts: ["胸", null],
         totalVolume: 5000.4,
         workoutCount: 2,
       },
@@ -41,6 +43,41 @@ describe("summarizeWorkoutCalendarDays", () => {
     ]);
 
     expect([...summaries.values()][0]?.totalVolume).toBeNull();
+  });
+});
+
+describe("summarizeWorkoutMonth", () => {
+  it("counts distinct days and only the requested month", () => {
+    const summary = summarizeWorkoutMonth(
+      [
+        workout({ performed_at: new Date(2026, 8, 3, 9).toISOString() }),
+        workout({
+          duration_minutes: 30,
+          performed_at: new Date(2026, 8, 3, 19).toISOString(),
+          total_volume: 500,
+        }),
+        workout({ performed_at: new Date(2026, 8, 5, 9).toISOString() }),
+        workout({ performed_at: new Date(2026, 7, 31, 9).toISOString() }),
+      ],
+      2026,
+      8,
+    );
+
+    expect(summary).toEqual({
+      totalMinutes: 150,
+      totalVolume: 2500,
+      trainingDays: 2,
+    });
+  });
+
+  it("reports unknown volume rather than an undercount", () => {
+    const summary = summarizeWorkoutMonth(
+      [workout({ total_volume: undefined }), workout()],
+      2026,
+      4,
+    );
+
+    expect(summary.totalVolume).toBeNull();
   });
 });
 

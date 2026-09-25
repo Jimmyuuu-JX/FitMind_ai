@@ -12,10 +12,14 @@ import {
   ExerciseProgressSheet,
   type ExerciseProgressSheetExercise,
 } from "./ExerciseProgressSheet";
+import { BodyPartTrendCard } from "./BodyPartTrendCard";
 import { MuscleLoadPanel } from "./MuscleLoadPanel";
+import { TrainingOverviewCard } from "./TrainingOverviewCard";
 import { useMuscleLoad } from "./use-muscle-load";
 import { useTrainingSummary } from "./use-training-summary";
+import { useWeeklyTrend } from "./use-weekly-trend";
 import { WeeklyVolumeCard } from "./WeeklyVolumeCard";
+import { useTheme } from "../../theme/ThemeContext";
 
 export interface AnalysisViewProps {
   /** Reports the focused exercise so the assistant can answer about it. */
@@ -25,9 +29,13 @@ export interface AnalysisViewProps {
   token: string | null;
 }
 
+/** Trailing weeks loaded for the overview, volume and body-part trends. */
+const TREND_WEEKS = 12;
+
 /**
- * Analysis tab: one range control drives every card below it
- * (总览 / 肌群容量占比 / 动作进展), with a fixed trailing-4-week volume chart.
+ * Analysis tab in three bands: 本周 (this week against the recent rhythm),
+ * 区间 (one range control drives 总览 / 部位占比 / 动作进展), and 周趋势
+ * (fixed trailing weeks of volume, overall and per body part).
  *
  * @param props - Auth token, refresh signal, and exercise selection wiring
  * @returns Analysis tab element
@@ -40,10 +48,18 @@ export function AnalysisView(props: AnalysisViewProps) {
   const range = useMemo(() => createAnalysisRange(rangeKey), [rangeKey]);
   const summaryState = useTrainingSummary(token, range, refreshSignal);
   const muscleLoadState = useMuscleLoad(token, range, refreshSignal);
+  const weeklyTrend = useWeeklyTrend(token, TREND_WEEKS, refreshSignal);
   const exercises = summaryState.summary?.by_exercise ?? [];
 
   return (
     <section style={viewStyle}>
+      <TrainingOverviewCard
+        errorMessage={weeklyTrend.errorMessage}
+        isLoading={weeklyTrend.isLoading}
+        points={weeklyTrend.points}
+      />
+
+      <SectionHeading note="下方卡片随范围切换" title="区间分析" />
       <SegmentedControl
         label="分析范围"
         onChange={setRangeKey}
@@ -95,7 +111,17 @@ export function AnalysisView(props: AnalysisViewProps) {
         token={token}
       />
 
-      <WeeklyVolumeCard refreshSignal={refreshSignal} token={token} />
+      <SectionHeading note="按周统计 · 周日起算" title="周趋势" />
+      <WeeklyVolumeCard
+        errorMessage={weeklyTrend.errorMessage}
+        isLoading={weeklyTrend.isLoading}
+        points={weeklyTrend.points}
+      />
+      <BodyPartTrendCard
+        errorMessage={weeklyTrend.errorMessage}
+        isLoading={weeklyTrend.isLoading}
+        points={weeklyTrend.points}
+      />
 
       <ExerciseProgressSheet
         exercise={sheetExercise}
@@ -106,6 +132,36 @@ export function AnalysisView(props: AnalysisViewProps) {
         token={token}
       />
     </section>
+  );
+}
+
+function SectionHeading(props: { note: string; title: string }) {
+  const { theme } = useTheme();
+
+  return (
+    <div
+      style={{
+        alignItems: "baseline",
+        display: "flex",
+        justifyContent: "space-between",
+        marginTop: 8,
+        padding: "0 4px",
+      }}
+    >
+      <h2
+        style={{
+          fontSize: 20,
+          fontWeight: 800,
+          letterSpacing: "-0.4px",
+          margin: 0,
+        }}
+      >
+        {props.title}
+      </h2>
+      <span style={{ color: theme.colors.tx3, fontSize: 11 }}>
+        {props.note}
+      </span>
+    </div>
   );
 }
 

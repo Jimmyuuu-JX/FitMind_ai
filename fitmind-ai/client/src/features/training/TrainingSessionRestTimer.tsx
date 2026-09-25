@@ -1,9 +1,14 @@
 import { useState } from "react";
 
+import { ActionSheet } from "../../components/ActionSheet";
 import { Button } from "../../components/Button";
 import { Icon } from "../../components/Icon";
 import { Input } from "../../components/Input";
+import { MOTION } from "../../components/motion";
 import { useTheme } from "../../theme/ThemeContext";
+import { accentAlpha } from "../../theme/tokens";
+import { SessionIcon } from "./TrainingSessionIcons";
+import { TrainingSessionAccordion } from "./TrainingSessionReveal";
 
 const REST_TIMER_OPTIONS = [30, 60, 90, 120] as const;
 
@@ -21,130 +26,136 @@ export interface TrainingSessionRestTimerProps {
   onClose: () => void;
   onConfirmDuration: (seconds: number) => void;
   onToggleRunning: () => void;
-  timer: RestTimerState;
+  timer: RestTimerState | null;
 }
 
+/**
+ * Rest countdown. Picking a duration happens in a sheet; the countdown itself
+ * is a slim bar above the toolbar that grows in and out of place, so the
+ * lifter can keep logging while resting.
+ *
+ * @param props - Timer state and handlers
+ * @returns Duration sheet plus countdown bar
+ */
 export function TrainingSessionRestTimer(props: TrainingSessionRestTimerProps) {
   const { theme } = useTheme();
   const [customRestSeconds, setCustomRestSeconds] = useState("150");
+  const isCounting = props.timer !== null && props.timer.status !== "selecting";
+  const [lastCountdown, setLastCountdown] = useState<RestTimerState | null>(
+    isCounting ? props.timer : null,
+  );
+
+  // Keep the last countdown on screen while the bar collapses away.
+  if (isCounting && props.timer !== lastCountdown) {
+    setLastCountdown(props.timer);
+  }
+
+  const countdown = isCounting ? props.timer : lastCountdown;
   const progress =
-    props.timer.totalSeconds > 0
+    countdown && countdown.totalSeconds > 0
       ? Math.max(
           0,
-          Math.min(1, props.timer.remainingSeconds / props.timer.totalSeconds),
+          Math.min(1, countdown.remainingSeconds / countdown.totalSeconds),
         )
       : 0;
 
   return (
-    <div onClick={props.onClose} style={backdropStyle(theme)}>
-      <section
-        onClick={(event) => event.stopPropagation()}
-        style={cardStyle(theme)}
+    <>
+      <ActionSheet
+        onClose={props.onClose}
+        open={props.timer?.status === "selecting"}
+        showCloseButton
+        title="设置休息倒计时"
       >
-        {props.timer.status === "selecting" ? (
-          <>
-            <header style={headerStyle}>
-              <div style={titleWrapStyle}>
-                <Icon name="clock" size={18} />
-                <strong style={titleStyle(theme)}>设置休息倒计时</strong>
-              </div>
+        <div style={optionGridStyle}>
+          {REST_TIMER_OPTIONS.map((seconds) => (
+            <button
+              key={seconds}
+              onClick={() => props.onConfirmDuration(seconds)}
+              style={optionButtonStyle(theme)}
+              type="button"
+            >
+              {seconds} 秒
+            </button>
+          ))}
+        </div>
+
+        <div style={customRowStyle}>
+          <Input
+            aria-label="自定义休息秒数"
+            min="1"
+            onChange={(event) => setCustomRestSeconds(event.target.value)}
+            type="number"
+            value={customRestSeconds}
+          />
+          <Button
+            disabled={!isValidRestSeconds(customRestSeconds)}
+            onClick={() =>
+              props.onConfirmDuration(Number.parseInt(customRestSeconds, 10))
+            }
+            type="button"
+            variant="secondary"
+          >
+            自定义
+          </Button>
+        </div>
+      </ActionSheet>
+
+      <TrainingSessionAccordion open={isCounting}>
+        {countdown ? (
+          <div
+            aria-label="休息倒计时"
+            role="group"
+            style={barStyle(theme, countdown.status)}
+          >
+            <span style={barIconStyle(theme, countdown.status)}>
+              {countdown.status === "finished" ? (
+                <Icon name="check" size={16} />
+              ) : (
+                <SessionIcon name="timer" size={16} />
+              )}
+            </span>
+            <span style={barCopyStyle}>
+              <span style={barTitleStyle(theme)}>
+                {countdown.status === "finished"
+                  ? "休息结束，可以开始下一组了"
+                  : countdown.status === "paused"
+                    ? "休息已暂停"
+                    : "休息中"}
+              </span>
+              <span style={progressTrackStyle(theme)}>
+                <span style={progressFillStyle(theme, progress)} />
+              </span>
+            </span>
+            <strong style={countdownStyle(theme)}>
+              {formatRestTime(countdown.remainingSeconds)}
+            </strong>
+            {countdown.status !== "finished" ? (
               <button
-                aria-label="关闭休息倒计时"
-                onClick={props.onClose}
-                style={closeButtonStyle(theme)}
+                aria-label={countdown.status === "paused" ? "继续" : "暂停"}
+                onClick={props.onToggleRunning}
+                style={barButtonStyle(theme)}
                 type="button"
               >
-                ×
-              </button>
-            </header>
-
-            <div style={optionGridStyle}>
-              {REST_TIMER_OPTIONS.map((seconds) => (
-                <button
-                  key={seconds}
-                  onClick={() => props.onConfirmDuration(seconds)}
-                  style={optionButtonStyle(theme)}
-                  type="button"
-                >
-                  {seconds} 秒
-                </button>
-              ))}
-            </div>
-
-            <div style={customRowStyle}>
-              <Input
-                min="1"
-                onChange={(event) => setCustomRestSeconds(event.target.value)}
-                type="number"
-                value={customRestSeconds}
-              />
-              <Button
-                disabled={!isValidRestSeconds(customRestSeconds)}
-                onClick={() =>
-                  props.onConfirmDuration(
-                    Number.parseInt(customRestSeconds, 10),
-                  )
-                }
-                type="button"
-                variant="secondary"
-              >
-                自定义
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <header style={headerStyle}>
-              <div style={titleWrapStyle}>
-                <Icon
-                  name={props.timer.status === "finished" ? "check" : "clock"}
-                  size={18}
+                <SessionIcon
+                  name={countdown.status === "paused" ? "play" : "pause"}
+                  size={14}
+                  strokeWidth={2.6}
                 />
-                <strong style={titleStyle(theme)}>
-                  {props.timer.status === "finished"
-                    ? "休息结束，可以开始下一组了"
-                    : props.timer.status === "paused"
-                      ? "休息已暂停"
-                      : "休息中"}
-                </strong>
-              </div>
-              <button
-                aria-label="关闭休息倒计时"
-                onClick={props.onClose}
-                style={closeButtonStyle(theme)}
-                type="button"
-              >
-                ×
               </button>
-            </header>
-
-            <div style={countdownWrapStyle}>
-              <strong style={countdownStyle(theme)}>
-                {formatRestTime(props.timer.remainingSeconds)}
-              </strong>
-              <div style={progressTrackStyle(theme)}>
-                <div style={progressFillStyle(theme, progress)} />
-              </div>
-            </div>
-
-            <div style={actionRowStyle}>
-              {props.timer.status !== "finished" ? (
-                <Button
-                  onClick={props.onToggleRunning}
-                  type="button"
-                  variant="secondary"
-                >
-                  {props.timer.status === "paused" ? "继续" : "暂停"}
-                </Button>
-              ) : null}
-              <Button onClick={props.onClose} type="button" variant="secondary">
-                关闭
-              </Button>
-            </div>
-          </>
-        )}
-      </section>
-    </div>
+            ) : null}
+            <button
+              aria-label="关闭休息倒计时"
+              onClick={props.onClose}
+              style={barButtonStyle(theme)}
+              type="button"
+            >
+              <Icon name="x" size={14} />
+            </button>
+          </div>
+        ) : null}
+      </TrainingSessionAccordion>
+    </>
   );
 }
 
@@ -162,76 +173,6 @@ function formatRestTime(totalSeconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function backdropStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    alignItems: "center",
-    backgroundColor: theme.isDark
-      ? "rgba(0, 0, 0, 0.52)"
-      : "rgba(0, 0, 0, 0.28)",
-    display: "flex",
-    inset: 0,
-    justifyContent: "center",
-    padding: 20,
-    position: "absolute",
-    zIndex: 240,
-  };
-}
-
-function cardStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    backgroundColor: theme.colors.surf,
-    border: `1px solid ${theme.colors.bdr2}`,
-    borderRadius: theme.radius.card,
-    boxShadow: theme.shadows.card,
-    display: "grid",
-    gap: 16,
-    maxWidth: 320,
-    padding: 18,
-    width: "100%",
-  };
-}
-
-const headerStyle: React.CSSProperties = {
-  alignItems: "center",
-  display: "flex",
-  gap: 12,
-  justifyContent: "space-between",
-};
-
-const titleWrapStyle: React.CSSProperties = {
-  alignItems: "center",
-  display: "flex",
-  gap: 10,
-};
-
-function titleStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    color: theme.colors.tx,
-    fontSize: 15,
-    lineHeight: 1.4,
-  };
-}
-
-function closeButtonStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    background: "transparent",
-    border: "none",
-    color: theme.colors.tx3,
-    cursor: "pointer",
-    fontSize: 22,
-    lineHeight: 1,
-    padding: 0,
-  };
-}
-
 const optionGridStyle: React.CSSProperties = {
   display: "grid",
   gap: 10,
@@ -247,9 +188,9 @@ function optionButtonStyle(
     borderRadius: theme.radius.control,
     color: theme.colors.tx,
     cursor: "pointer",
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: 700,
-    padding: "12px 10px",
+    padding: "14px 10px",
   };
 }
 
@@ -259,19 +200,63 @@ const customRowStyle: React.CSSProperties = {
   gridTemplateColumns: "minmax(0, 1fr) auto",
 };
 
-const countdownWrapStyle: React.CSSProperties = {
+function barStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+  status: RestTimerStatus,
+): React.CSSProperties {
+  return {
+    alignItems: "center",
+    background:
+      status === "finished" ? accentAlpha(theme, 0.14) : theme.colors.surf,
+    border: `1px solid ${status === "finished" ? accentAlpha(theme, 0.4) : theme.colors.bdr}`,
+    borderRadius: 16,
+    display: "flex",
+    gap: 10,
+    margin: "0 12px 8px",
+    padding: "10px 10px 10px 12px",
+    transition: `background ${MOTION.enterMs}ms ${MOTION.standard}, border-color ${MOTION.enterMs}ms ${MOTION.standard}`,
+  };
+}
+
+function barIconStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+  status: RestTimerStatus,
+): React.CSSProperties {
+  return {
+    color: status === "finished" ? theme.colors.ac : theme.colors.orange,
+    display: "inline-flex",
+  };
+}
+
+const barCopyStyle: React.CSSProperties = {
   display: "grid",
-  gap: 12,
+  flex: "1 1 auto",
+  gap: 6,
+  minWidth: 0,
 };
+
+function barTitleStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    color: theme.colors.tx2,
+    fontSize: 12,
+    fontWeight: 600,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+}
 
 function countdownStyle(
   theme: ReturnType<typeof useTheme>["theme"],
 ): React.CSSProperties {
   return {
     color: theme.colors.tx,
-    fontSize: 36,
+    fontSize: 22,
+    fontVariantNumeric: "tabular-nums",
+    fontWeight: 800,
     lineHeight: 1,
-    textAlign: "center",
   };
 }
 
@@ -281,7 +266,8 @@ function progressTrackStyle(
   return {
     backgroundColor: theme.colors.surf2,
     borderRadius: 999,
-    height: 8,
+    display: "block",
+    height: 4,
     overflow: "hidden",
   };
 }
@@ -293,14 +279,28 @@ function progressFillStyle(
   return {
     backgroundColor: theme.colors.orange,
     borderRadius: 999,
+    display: "block",
     height: "100%",
-    transition: "width 180ms ease",
+    transition: "width 1s linear",
     width: `${progress * 100}%`,
   };
 }
 
-const actionRowStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 10,
-  justifyContent: "flex-end",
-};
+function barButtonStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    alignItems: "center",
+    background: theme.colors.surf2,
+    border: "none",
+    borderRadius: 999,
+    color: theme.colors.tx2,
+    cursor: "pointer",
+    display: "flex",
+    flex: "0 0 auto",
+    height: 32,
+    justifyContent: "center",
+    padding: 0,
+    width: 32,
+  };
+}

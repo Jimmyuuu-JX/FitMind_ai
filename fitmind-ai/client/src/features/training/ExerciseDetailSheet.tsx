@@ -6,6 +6,7 @@ import { Pill } from "../../components/Pill";
 import { StateNotice } from "../../components/StateNotice";
 import { useTheme } from "../../theme/ThemeContext";
 import type { DictionaryExercise } from "./dictionary-api";
+import { ExerciseAvatar } from "./exercise-library-avatar";
 import {
   getEquipmentLabel,
   getExerciseDisplayName,
@@ -32,6 +33,12 @@ export function ExerciseDetailSheet(props: ExerciseDetailSheetProps) {
   const [progressError, setProgressError] = useState<string | null>(null);
   const exercise = props.exercise;
   const [range] = useState(createDefaultRange);
+  // Keep drawing the last exercise while the sheet slides out after close.
+  const [shownExercise, setShownExercise] = useState(exercise);
+
+  if (exercise && exercise !== shownExercise) {
+    setShownExercise(exercise);
+  }
 
   useEffect(() => {
     if (!exercise || !props.token) {
@@ -72,48 +79,57 @@ export function ExerciseDetailSheet(props: ExerciseDetailSheetProps) {
     };
   }, [exercise, props.token, range.end_date, range.start_date]);
 
-  if (!exercise) {
+  const shown = exercise ?? shownExercise;
+
+  if (!shown) {
     return null;
   }
 
-  const primaryMuscles = exercise.muscles.filter((muscle) => muscle.is_primary);
-  const secondaryMuscles = exercise.muscles.filter(
-    (muscle) => !muscle.is_primary,
-  );
-  const movementLabel = getMovementPatternLabel(exercise.movement_pattern);
-  const equipmentLabel = getEquipmentLabel(exercise.equipment);
+  const primaryMuscles = shown.muscles.filter((muscle) => muscle.is_primary);
+  const secondaryMuscles = shown.muscles.filter((muscle) => !muscle.is_primary);
+  const movementLabel = getMovementPatternLabel(shown.movement_pattern);
+  const equipmentLabel = getEquipmentLabel(shown.equipment);
 
   return (
     <ActionSheet
       description={movementLabel ?? "查看动作要点和最近训练记录。"}
       footer={
         props.onSelectExercise ? (
-          <Button
-            onClick={() => props.onSelectExercise?.(exercise)}
-            type="button"
-          >
+          <Button onClick={() => props.onSelectExercise?.(shown)} type="button">
             {props.actionLabel ?? "加入本次训练"}
           </Button>
         ) : undefined
       }
       onClose={props.onClose}
-      open
+      open={exercise !== null}
       showCloseButton
-      title={getExerciseDisplayName(exercise)}
+      title={getExerciseDisplayName(shown)}
     >
       <section style={sectionStyle}>
-        <div style={pillRowStyle}>
-          {equipmentLabel ? <Pill tone="neutral">{equipmentLabel}</Pill> : null}
-          {movementLabel ? <Pill tone="analysis">{movementLabel}</Pill> : null}
+        <div style={heroStyle(theme)}>
+          <ExerciseAvatar exercise={shown} size={76} />
+          <div style={pillRowStyle}>
+            {equipmentLabel ? (
+              <Pill tone="neutral">{equipmentLabel}</Pill>
+            ) : null}
+            {movementLabel ? (
+              <Pill tone="analysis">{movementLabel}</Pill>
+            ) : null}
+            {primaryMuscles.slice(0, 2).map((muscle) => (
+              <Pill key={muscle.code} tone="accent">
+                {getMuscleCodeLabel(muscle.code)}
+              </Pill>
+            ))}
+          </div>
         </div>
         <DetailList
           emptyText="这个动作的要点还在整理中，先保持标准动作和可控节奏。"
-          items={exercise.technique_cues_zh}
+          items={shown.technique_cues_zh}
           title="动作要点"
         />
         <DetailList
           emptyText="暂时没有更多错误提醒，训练时优先避免借力和失控。"
-          items={exercise.common_mistakes_zh}
+          items={shown.common_mistakes_zh}
           title="常见错误"
         />
         <InfoBlock
@@ -129,7 +145,7 @@ export function ExerciseDetailSheet(props: ExerciseDetailSheetProps) {
         <InfoBlock
           title="器械说明"
           value={
-            exercise.equipment_notes_zh?.trim() ||
+            shown.equipment_notes_zh?.trim() ||
             "请根据动作需要选择合适器械，并确认训练环境安全。"
           }
         />
@@ -140,7 +156,7 @@ export function ExerciseDetailSheet(props: ExerciseDetailSheetProps) {
         <ExerciseHistorySummary
           isLoading={isLoadingProgress}
           progress={
-            progress?.exercise.exercise_id === exercise.id ? progress : null
+            progress?.exercise.exercise_id === shown.id ? progress : null
           }
           progressError={progressError}
           token={props.token}
@@ -159,7 +175,7 @@ function DetailList(props: {
   const items = props.items.map((item) => item.trim()).filter(Boolean);
 
   return (
-    <div style={infoBlockStyle}>
+    <div style={infoBlockStyle(theme)}>
       <h3 style={sectionTitleStyle(theme)}>{props.title}</h3>
       {items.length > 0 ? (
         <ul style={detailListStyle}>
@@ -180,7 +196,7 @@ function InfoBlock(props: { title: string; value: string }) {
   const { theme } = useTheme();
 
   return (
-    <div style={infoBlockStyle}>
+    <div style={infoBlockStyle(theme)}>
       <h3 style={sectionTitleStyle(theme)}>{props.title}</h3>
       <p style={copyStyle(theme)}>{props.value}</p>
     </div>
@@ -354,12 +370,33 @@ const pillRowStyle: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   gap: 8,
+  justifyContent: "center",
 };
 
-const infoBlockStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 8,
-};
+function infoBlockStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    backgroundColor: theme.colors.soft,
+    borderRadius: 14,
+    display: "grid",
+    gap: 8,
+    padding: "12px 14px",
+  };
+}
+
+function heroStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    alignItems: "center",
+    borderBottom: `1px solid ${theme.colors.divider}`,
+    display: "grid",
+    gap: 12,
+    justifyItems: "center",
+    paddingBottom: 14,
+  };
+}
 
 function sectionTitleStyle(
   theme: ReturnType<typeof useTheme>["theme"],

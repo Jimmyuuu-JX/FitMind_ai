@@ -30,7 +30,6 @@ export interface TrainingViewProps {
 export function TrainingView(props: TrainingViewProps) {
   const { theme } = useTheme();
   const [isComposerOpen, setIsComposerOpen] = useState(false);
-  const [isDictionaryOpen, setIsDictionaryOpen] = useState(false);
   const [intakeEntryMode, setIntakeEntryMode] = useState<
     "text" | "voice" | null
   >(null);
@@ -151,23 +150,16 @@ export function TrainingView(props: TrainingViewProps) {
               按肌群浏览标准动作要点
             </span>
           </div>
-          <button
-            onClick={() => setIsDictionaryOpen((currentValue) => !currentValue)}
-            style={dictionaryToggleStyle(theme)}
-            type="button"
-          >
-            {isDictionaryOpen ? "收起" : "展开"}
-          </button>
         </div>
 
-        {isDictionaryOpen ? (
-          <div style={{ marginTop: 12 }}>
-            <ExercisePicker
-              {...props.exercisePickerProps}
-              token={props.workoutFormProps.token}
-            />
-          </div>
-        ) : null}
+        {/* Always browsable: the part tiles open the full library directly. */}
+        <div style={{ marginTop: 12 }}>
+          <ExercisePicker
+            {...props.exercisePickerProps}
+            openLibraryOnMount={false}
+            token={props.workoutFormProps.token}
+          />
+        </div>
       </Card>
 
       <TrainingSessionComposer
@@ -266,18 +258,3 @@ function dictionaryCopyStyle(
 }
 
 /** Design: accent-green chip toggling the exercise library section. */
-function dictionaryToggleStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    background: theme.colors.divider,
-    border: "none",
-    borderRadius: 10,
-    color: theme.colors.ac,
-    cursor: "pointer",
-    flex: "0 0 auto",
-    fontSize: 11,
-    fontWeight: 700,
-    padding: "7px 11px",
-  };
-}

@@ -1,26 +1,33 @@
-import { useEffect, useRef, useState } from "react";
-
 import type { DraftExercise, DraftSet } from "./training-session-draft";
 
 import { Pill } from "../../components/Pill";
+import { MOTION } from "../../components/motion";
 import { useTheme } from "../../theme/ThemeContext";
-import { getExerciseSummary, isDraftSetValid } from "./training-session-draft";
+import { accentAlpha } from "../../theme/tokens";
 import {
-  formatWeight,
   getEquipmentLabel,
-  getExerciseDisplayName,
   getMovementPatternLabel,
   getMuscleCodeLabel,
 } from "./exercise-display";
 import { TrainingSessionExerciseActions } from "./TrainingSessionExerciseActions";
+import { SessionIcon } from "./TrainingSessionIcons";
+import { TrainingSessionAccordion } from "./TrainingSessionReveal";
 import { TrainingSessionSetRow } from "./TrainingSessionSetRow";
-import { accentAlpha } from "../../theme/tokens";
+import { isDraftSetValid } from "./training-session-draft";
+import {
+  formatProgressAmount,
+  getExerciseProgress,
+} from "./training-session-progress";
+
+/** Collapsed cards show at most this many set dots, then "+N". */
+const MAX_DOTS = 12;
 
 export interface TrainingSessionExerciseCardProps {
   draftExercise: DraftExercise;
   canMoveDown: boolean;
   canMoveUp: boolean;
   onAddSet: () => void;
+  onClearSet?: ((setId: string) => void) | undefined;
   onCopySet: (setId: string) => void;
   onDeleteSet: (setId: string) => void;
   onMoveDown: () => void;
@@ -28,6 +35,8 @@ export interface TrainingSessionExerciseCardProps {
   onRemove: () => void;
   onReplace: () => void;
   onResolveCandidate: (exerciseId: string) => void;
+  /** Present only when the exercise can show its training history. */
+  onShowHistory?: (() => void) | undefined;
   onStartRestTimer: (setId: string) => void;
   onToggleExpanded: () => void;
   onToggleSetCompleted: (setId: string) => void;
@@ -38,130 +47,133 @@ export interface TrainingSessionExerciseCardProps {
   ) => void;
 }
 
+/**
+ * One exercise in the session (训记 card): round badge, name, "N 组", a dot
+ * per set (green once done), done/total volume and the gear menu. Tapping the
+ * card opens it in place into big per-set tiles with 新增一组 / 动作历史.
+ *
+ * @param props - Exercise draft and its handlers
+ * @returns Accordion card
+ */
 export function TrainingSessionExerciseCard(
   props: TrainingSessionExerciseCardProps,
 ) {
   const { theme } = useTheme();
-  const summary = getExerciseSummary(props.draftExercise);
-  const primaryMuscles = (props.draftExercise.exercise?.muscles ?? [])
+  const { draftExercise } = props;
+  const progress = getExerciseProgress(draftExercise);
+  const bodyId = `training-session-exercise-body-${draftExercise.id}`;
+  const primaryMuscles = (draftExercise.exercise?.muscles ?? [])
     .filter((muscle) => muscle.is_primary)
     .slice(0, 2)
     .map((muscle) => muscle.code);
   const movementLabel = getMovementPatternLabel(
-    props.draftExercise.exercise?.movement_pattern,
+    draftExercise.exercise?.movement_pattern,
   );
-  const equipmentLabel = getEquipmentLabel(
-    props.draftExercise.exercise?.equipment,
-  );
-  const [activeSetId, setActiveSetId] = useState<string | null>(null);
-  const [isActionLayerOpen, setIsActionLayerOpen] = useState(false);
-  const editorScrollerRef = useRef<HTMLDivElement | null>(null);
-  const visibleActiveSetId = props.draftExercise.sets.some((setDraft) => {
-    return setDraft.id === activeSetId;
-  })
-    ? activeSetId
-    : (props.draftExercise.sets.at(-1)?.id ?? null);
-
-  useEffect(() => {
-    if (!props.draftExercise.isExpanded || !editorScrollerRef.current) {
-      return;
-    }
-
-    editorScrollerRef.current.scrollTo({
-      behavior: "smooth",
-      top: editorScrollerRef.current.scrollHeight,
-    });
-  }, [props.draftExercise.isExpanded, props.draftExercise.sets.length]);
+  const equipmentLabel = getEquipmentLabel(draftExercise.exercise?.equipment);
+  const isMatched = draftExercise.matchStatus === "matched";
+  const hiddenDots = Math.max(0, progress.setCompletion.length - MAX_DOTS);
 
   return (
     <section
-      onClick={(event) => {
-        event.stopPropagation();
-        if (event.target === event.currentTarget) {
-          props.onToggleExpanded();
-        }
-      }}
-      style={cardStyle(
-        theme,
-        props.draftExercise.isExpanded,
-        isActionLayerOpen,
-      )}
+      id={`training-session-exercise-${draftExercise.id}`}
+      onClick={(event) => event.stopPropagation()}
+      style={cardStyle(theme, draftExercise.isExpanded)}
     >
-      <TrainingSessionExerciseActions
-        canMoveDown={props.canMoveDown}
-        canMoveUp={props.canMoveUp}
-        draftExercise={props.draftExercise}
-        onMoveDown={props.onMoveDown}
-        onMoveUp={props.onMoveUp}
-        onOpenChange={setIsActionLayerOpen}
-        onRemove={props.onRemove}
-        onReplace={props.onReplace}
-      />
-
-      <button
-        onClick={props.onToggleExpanded}
-        style={headerButtonStyle}
-        type="button"
-      >
-        <div style={titleRowStyle}>
-          <div>
-            <strong style={{ color: theme.colors.tx, fontSize: 15 }}>
-              {props.draftExercise.name}
-            </strong>
-            {props.draftExercise.exercise ? (
-              <p style={secondaryTextStyle(theme)}>
-                {getExerciseDisplayName(props.draftExercise.exercise)}
-              </p>
-            ) : null}
-            {props.draftExercise.inputName &&
-            props.draftExercise.matchStatus !== "matched" ? (
-              <p style={secondaryTextStyle(theme)}>
-                {props.draftExercise.inputName}
-              </p>
-            ) : null}
-          </div>
-          <Pill
-            tone={
-              props.draftExercise.matchStatus === "matched" ? "info" : "warning"
-            }
-          >
-            {props.draftExercise.matchStatus === "matched"
-              ? props.draftExercise.categoryLabel
-              : "\u9700\u8981\u786e\u8ba4"}
-          </Pill>
-        </div>
-
-        <p style={statsStyle(theme)}>
-          {summary.completedSets} 组 · 总容量{" "}
-          {formatWeight(formatVolume(summary.totalVolumeKg))}
-        </p>
-
-        <div style={metaRowStyle}>
-          {movementLabel ? <Pill tone="analysis">{movementLabel}</Pill> : null}
-          {equipmentLabel ? <Pill tone="neutral">{equipmentLabel}</Pill> : null}
-          {primaryMuscles.map((muscleCode) => (
-            <Pill key={muscleCode} tone="accent">
-              {getMuscleCodeLabel(muscleCode)}
-            </Pill>
-          ))}
-        </div>
-      </button>
-
-      {props.draftExercise.isExpanded ? (
-        <div
-          onClick={(event) => event.stopPropagation()}
-          style={editorShellStyle}
+      <div style={headerRowStyle}>
+        <button
+          aria-controls={bodyId}
+          aria-expanded={draftExercise.isExpanded}
+          onClick={props.onToggleExpanded}
+          style={headerButtonStyle}
+          type="button"
         >
-          {props.draftExercise.matchStatus !== "matched" ? (
+          <span aria-hidden="true" style={badgeStyle(theme, progress.isDone)}>
+            {getBadgeText(draftExercise)}
+          </span>
+
+          <span style={titleBlockStyle}>
+            <strong style={nameStyle(theme)}>{draftExercise.name}</strong>
+            <span style={subRowStyle(theme)}>
+              {progress.totalSets} 组
+              {!isMatched ? <Pill tone="warning">需要确认</Pill> : null}
+            </span>
+            {progress.setCompletion.length > 0 ? (
+              <span
+                aria-label={`已完成 ${progress.completedSets}/${progress.totalSets} 组`}
+                role="img"
+                style={dotRowStyle}
+              >
+                {progress.setCompletion
+                  .slice(0, MAX_DOTS)
+                  .map((isDone, index) => (
+                    <span
+                      key={draftExercise.sets[index]?.id ?? index}
+                      style={dotStyle(theme, isDone)}
+                    />
+                  ))}
+                {hiddenDots > 0 ? (
+                  <span style={moreDotsStyle(theme)}>+{hiddenDots}</span>
+                ) : null}
+              </span>
+            ) : null}
+          </span>
+
+          {progress.totalSets > 0 ? (
+            <span style={amountStyle(theme)}>
+              {formatProgressAmount(progress.completedAmount)}/
+              {formatProgressAmount(progress.totalAmount)}
+              {progress.metric === "reps" ? " 次" : ""}
+            </span>
+          ) : null}
+        </button>
+
+        <span aria-hidden="true" style={dividerStyle(theme)} />
+
+        <TrainingSessionExerciseActions
+          canMoveDown={props.canMoveDown}
+          canMoveUp={props.canMoveUp}
+          draftExercise={draftExercise}
+          onMoveDown={props.onMoveDown}
+          onMoveUp={props.onMoveUp}
+          onRemove={props.onRemove}
+          onReplace={props.onReplace}
+          onShowHistory={props.onShowHistory}
+        />
+      </div>
+
+      <TrainingSessionAccordion id={bodyId} open={draftExercise.isExpanded}>
+        <div style={bodyStyle}>
+          {movementLabel || equipmentLabel || primaryMuscles.length > 0 ? (
+            <div style={metaRowStyle}>
+              {movementLabel ? (
+                <Pill tone="analysis">{movementLabel}</Pill>
+              ) : null}
+              {equipmentLabel ? (
+                <Pill tone="neutral">{equipmentLabel}</Pill>
+              ) : null}
+              {primaryMuscles.map((muscleCode) => (
+                <Pill key={muscleCode} tone="accent">
+                  {getMuscleCodeLabel(muscleCode)}
+                </Pill>
+              ))}
+            </div>
+          ) : null}
+
+          {!isMatched ? (
             <div style={resolutionPanelStyle(theme)}>
               <p style={resolutionCopyStyle(theme)}>
-                {props.draftExercise.matchStatus === "ambiguous"
-                  ? "\u8fd9\u4e2a\u52a8\u4f5c\u9700\u8981\u5148\u786e\u8ba4\u5019\u9009\u3002"
-                  : "\u672a\u8bc6\u522b\u52a8\u4f5c\uff0c\u8bf7\u4ece\u52a8\u4f5c\u5e93\u9009\u62e9\u6807\u51c6\u52a8\u4f5c\u6216\u5220\u9664\u3002"}
+                {draftExercise.matchStatus === "ambiguous"
+                  ? "这个动作需要先确认候选。"
+                  : "未识别动作，请从动作库选择标准动作或删除。"}
               </p>
-              {props.draftExercise.candidateExercises.length > 0 ? (
+              {draftExercise.inputName ? (
+                <p style={resolutionCopyStyle(theme)}>
+                  原始输入：{draftExercise.inputName}
+                </p>
+              ) : null}
+              {draftExercise.candidateExercises.length > 0 ? (
                 <div style={candidateRowStyle}>
-                  {props.draftExercise.candidateExercises.map((candidate) => (
+                  {draftExercise.candidateExercises.map((candidate) => (
                     <button
                       key={candidate.exerciseId}
                       onClick={() =>
@@ -177,145 +189,224 @@ export function TrainingSessionExerciseCard(
               ) : null}
             </div>
           ) : null}
-          <div ref={editorScrollerRef} style={editorScrollerStyle()}>
-            {props.draftExercise.sets.map((setDraft, index) => {
-              const isActive = setDraft.id === visibleActiveSetId;
 
-              if (!isActive) {
-                return (
-                  <button
-                    key={setDraft.id}
-                    onClick={() => setActiveSetId(setDraft.id)}
-                    style={collapsedSetStyle(theme, setDraft.completed)}
-                    type="button"
-                  >
-                    <strong style={{ fontSize: 12 }}>第 {index + 1} 组</strong>
-                    <span style={collapsedMetaStyle(theme)}>
-                      {setDraft.weightKg || "--"} 公斤 · {setDraft.reps || "--"}{" "}
-                      次
-                    </span>
-                    {setDraft.completed ? (
-                      <span style={completedBadgeStyle(theme)}>已完成</span>
-                    ) : (
-                      <span style={collapsedHintStyle(theme)}>点击展开</span>
-                    )}
-                  </button>
-                );
-              }
-
-              return (
-                <TrainingSessionSetRow
-                  canComplete={isDraftSetValid(setDraft, props.draftExercise)}
-                  canDelete={props.draftExercise.sets.length > 1}
-                  index={index}
-                  key={setDraft.id}
-                  onCopy={() => props.onCopySet(setDraft.id)}
-                  onDelete={() => props.onDeleteSet(setDraft.id)}
-                  onStartRestTimer={() => props.onStartRestTimer(setDraft.id)}
-                  onToggleCompleted={() =>
-                    props.onToggleSetCompleted(setDraft.id)
-                  }
-                  onUpdate={(field, value) =>
-                    props.onUpdateSet(setDraft.id, field, value)
-                  }
-                  setDraft={setDraft}
-                />
-              );
-            })}
+          <div>
+            {draftExercise.sets.map((setDraft, index) => (
+              <TrainingSessionSetRow
+                canComplete={isDraftSetValid(setDraft, draftExercise)}
+                canDelete={draftExercise.sets.length > 1}
+                index={index}
+                isBodyweight={draftExercise.loadType === "bodyweight"}
+                key={setDraft.id}
+                onClear={
+                  props.onClearSet
+                    ? () => props.onClearSet?.(setDraft.id)
+                    : undefined
+                }
+                onCopy={() => props.onCopySet(setDraft.id)}
+                onDelete={() => props.onDeleteSet(setDraft.id)}
+                onStartRestTimer={() => props.onStartRestTimer(setDraft.id)}
+                onToggleCompleted={() =>
+                  props.onToggleSetCompleted(setDraft.id)
+                }
+                onUpdate={(field, value) =>
+                  props.onUpdateSet(setDraft.id, field, value)
+                }
+                setDraft={setDraft}
+              />
+            ))}
           </div>
 
-          <button
-            onClick={() => {
-              props.onAddSet();
-              setActiveSetId(null);
-            }}
-            style={addSetButtonStyle(theme)}
-            type="button"
-          >
-            + 新增一组
-          </button>
+          <div style={footerRowStyle(Boolean(props.onShowHistory))}>
+            <button
+              onClick={props.onAddSet}
+              style={footerButtonStyle(theme)}
+              type="button"
+            >
+              <SessionIcon name="plus" size={16} />
+              新增一组
+            </button>
+            {props.onShowHistory ? (
+              <button
+                onClick={props.onShowHistory}
+                style={footerButtonStyle(theme)}
+                type="button"
+              >
+                <SessionIcon name="history" size={16} />
+                动作历史
+              </button>
+            ) : null}
+          </div>
         </div>
-      ) : null}
+      </TrainingSessionAccordion>
     </section>
   );
 }
 
-function formatVolume(totalVolumeKg: number): string {
-  if (Number.isInteger(totalVolumeKg)) {
-    return `${totalVolumeKg}`;
-  }
+/** First character of the category (胸/背/腿…) as the card's round badge. */
+function getBadgeText(draftExercise: DraftExercise): string {
+  const source = draftExercise.categoryLabel || draftExercise.name;
 
-  return totalVolumeKg.toFixed(2);
+  return Array.from(source)[0] ?? "?";
 }
 
 function cardStyle(
   theme: ReturnType<typeof useTheme>["theme"],
   isExpanded: boolean,
-  isActionLayerOpen: boolean,
 ): React.CSSProperties {
   return {
     background: `${theme.gradients.card}, ${theme.colors.surf}`,
-    border: `1px solid ${isExpanded ? theme.colors.ac : theme.colors.bdr}`,
+    border: `1px solid ${isExpanded ? accentAlpha(theme, 0.45) : theme.colors.bdr}`,
     borderRadius: theme.radius.card,
     boxShadow: theme.shadows.card,
-    display: "grid",
-    gap: 14,
-    padding: 16,
-    position: "relative",
-    transition: "border-color 150ms ease, transform 150ms ease",
-    zIndex: isActionLayerOpen ? 30 : "auto",
+    padding: "14px 10px 14px 14px",
+    transition: `border-color ${MOTION.enterMs}ms ${MOTION.standard}`,
   };
 }
 
-const headerButtonStyle: React.CSSProperties = {
-  background: "transparent",
-  border: "none",
-  cursor: "pointer",
-  display: "grid",
-  gap: 10,
-  padding: "0 42px 0 0",
-  textAlign: "left",
-  width: "100%",
-};
-
-const titleRowStyle: React.CSSProperties = {
+const headerRowStyle: React.CSSProperties = {
   alignItems: "flex-start",
   display: "flex",
-  gap: 12,
-  justifyContent: "space-between",
+  gap: 4,
 };
 
-function secondaryTextStyle(
+const headerButtonStyle: React.CSSProperties = {
+  alignItems: "flex-start",
+  background: "transparent",
+  border: "none",
+  color: "inherit",
+  cursor: "pointer",
+  display: "flex",
+  flex: "1 1 auto",
+  gap: 12,
+  minWidth: 0,
+  padding: 0,
+  textAlign: "left",
+};
+
+function badgeStyle(
   theme: ReturnType<typeof useTheme>["theme"],
+  isDone: boolean,
 ): React.CSSProperties {
   return {
-    color: theme.colors.tx2,
-    fontSize: 12,
-    lineHeight: 1.6,
-    margin: "6px 0 0",
+    alignItems: "center",
+    background: isDone ? accentAlpha(theme, 0.18) : theme.colors.surf2,
+    border: `1.5px solid ${isDone ? theme.colors.ac : theme.colors.bdr2}`,
+    borderRadius: 999,
+    color: isDone ? theme.colors.ac : theme.colors.tx2,
+    display: "flex",
+    flex: "0 0 auto",
+    fontSize: 18,
+    fontWeight: 700,
+    height: 52,
+    justifyContent: "center",
+    transition: `background ${MOTION.enterMs}ms ${MOTION.standard}, border-color ${MOTION.enterMs}ms ${MOTION.standard}, color ${MOTION.enterMs}ms ${MOTION.standard}`,
+    width: 52,
   };
 }
 
-function statsStyle(
+const titleBlockStyle: React.CSSProperties = {
+  display: "grid",
+  flex: "1 1 auto",
+  gap: 4,
+  minWidth: 0,
+  paddingTop: 2,
+};
+
+function nameStyle(
   theme: ReturnType<typeof useTheme>["theme"],
 ): React.CSSProperties {
   return {
-    color: theme.colors.tx2,
-    fontSize: 13,
-    lineHeight: 1.6,
-    margin: 0,
+    color: theme.colors.tx,
+    fontSize: 16,
+    fontWeight: 600,
+    lineHeight: 1.3,
+    overflowWrap: "anywhere",
   };
 }
+
+function subRowStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    alignItems: "center",
+    color: theme.colors.tx3,
+    display: "flex",
+    flexWrap: "wrap",
+    fontSize: 12,
+    gap: 8,
+  };
+}
+
+const dotRowStyle: React.CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 5,
+  paddingTop: 4,
+};
+
+function dotStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+  isDone: boolean,
+): React.CSSProperties {
+  return {
+    background: isDone ? theme.colors.ac : theme.colors.bar,
+    borderRadius: 999,
+    height: 7,
+    transform: isDone ? "scale(1.15)" : "scale(1)",
+    transition: `background ${MOTION.enterMs}ms ${MOTION.standard}, transform ${MOTION.enterMs}ms cubic-bezier(0.34, 1.56, 0.64, 1)`,
+    width: 7,
+  };
+}
+
+function moreDotsStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    color: theme.colors.tx3,
+    fontSize: 10,
+  };
+}
+
+function amountStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    color: theme.colors.tx3,
+    flex: "0 0 auto",
+    fontSize: 12,
+    fontVariantNumeric: "tabular-nums",
+    maxWidth: 108,
+    paddingTop: 12,
+    textAlign: "right",
+    whiteSpace: "nowrap",
+  };
+}
+
+function dividerStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    alignSelf: "flex-start",
+    background: theme.colors.bdr2,
+    flex: "0 0 auto",
+    height: 14,
+    marginTop: 13,
+    width: 1,
+  };
+}
+
+const bodyStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 12,
+  padding: "14px 4px 0 0",
+};
 
 const metaRowStyle: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   gap: 6,
-};
-
-const editorShellStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 12,
 };
 
 function resolutionPanelStyle(
@@ -363,79 +454,29 @@ function candidateButtonStyle(
   };
 }
 
-function editorScrollerStyle(): React.CSSProperties {
+function footerRowStyle(hasHistory: boolean): React.CSSProperties {
   return {
     display: "grid",
-    gap: 10,
-    maxHeight: "min(48vh, 420px)",
-    overflowY: "auto",
-    overscrollBehavior: "contain",
-    paddingRight: 4,
-    WebkitOverflowScrolling: "touch",
+    gap: 8,
+    gridTemplateColumns: hasHistory ? "repeat(2, minmax(0, 1fr))" : "1fr",
   };
 }
 
-function collapsedSetStyle(
+function footerButtonStyle(
   theme: ReturnType<typeof useTheme>["theme"],
-  isCompleted: boolean,
 ): React.CSSProperties {
   return {
     alignItems: "center",
-    backgroundColor: isCompleted
-      ? accentAlpha(theme, 0.12)
-      : theme.colors.surf2,
-    border: `1px solid ${isCompleted ? theme.colors.ac : theme.colors.bdr}`,
-    borderRadius: theme.radius.control,
+    background: theme.isDark ? theme.colors.bg : theme.colors.surf2,
+    border: "none",
+    borderRadius: 12,
     color: theme.colors.tx,
     cursor: "pointer",
-    display: "grid",
+    display: "flex",
+    fontSize: 14,
+    fontWeight: 700,
     gap: 6,
-    gridTemplateColumns: "80px 1fr auto",
-    padding: "10px 12px",
-    textAlign: "left",
-    width: "100%",
-  };
-}
-
-function collapsedMetaStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    color: theme.colors.tx2,
-    fontSize: 12,
-  };
-}
-
-function completedBadgeStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    color: theme.colors.ac,
-    fontSize: 11,
-    fontWeight: 700,
-  };
-}
-
-function collapsedHintStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    color: theme.colors.tx3,
-    fontSize: 11,
-  };
-}
-
-function addSetButtonStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    background: "transparent",
-    border: `1px dashed ${theme.colors.grab}`,
-    borderRadius: 10,
-    color: theme.colors.tx2,
-    cursor: "pointer",
-    fontSize: 12,
-    fontWeight: 700,
-    padding: 10,
+    height: 46,
+    justifyContent: "center",
   };
 }

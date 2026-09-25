@@ -1,20 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { Pill } from "../../components/Pill";
+import { Icon } from "../../components/Icon";
 import { StateNotice } from "../../components/StateNotice";
+import { MOTION } from "../../components/motion";
 import { useTheme } from "../../theme/ThemeContext";
-import { ExerciseDetailSheet } from "./ExerciseDetailSheet";
+import { ExerciseLibraryScreen } from "./ExerciseLibraryScreen";
+import { getBodyPartColor, type BodyPart } from "./body-part";
 import {
   type DictionaryExercise,
   type DictionaryMuscleGroup,
 } from "./dictionary-api";
-import {
-  getEquipmentLabel,
-  getExerciseDisplayName,
-  getMovementPatternLabel,
-  getMuscleCodeLabel,
-  getMuscleGroupDisplayName,
-} from "./exercise-display";
+import { listLibraryRail, type LibraryPart } from "./exercise-library-model";
 
 export interface ExercisePickerProps {
   exercises: DictionaryExercise[];
@@ -25,297 +21,169 @@ export interface ExercisePickerProps {
   onSelectExercise?: ((exercise: DictionaryExercise) => void) | undefined;
   searchError: string | null;
   token?: string | null | undefined;
+  /**
+   * How often the user has trained each exercise, keyed by exercise id. The
+   * library shows "N 次" badges and a 常用 section only when this is given.
+   */
+  usageCounts?: ReadonlyMap<string, number> | undefined;
+  /**
+   * Open the full library as soon as the picker mounts (the training tab's
+   * 展开). Defaults to true.
+   */
+  openLibraryOnMount?: boolean | undefined;
 }
 
+const PART_COLOR: Partial<Record<LibraryPart, BodyPart>> = {
+  手臂: "二头",
+  核心: "核心",
+  肩: "肩",
+  胸: "胸",
+  背: "背",
+  腿: "腿",
+};
+
+/**
+ * Training-tab entry to the exercise library.
+ *
+ * Expanding the card slides the full library up in browse mode, where a tap
+ * opens the exercise detail. Left behind in the card are a search entry and
+ * body-part shortcuts that reopen the library at that part. When
+ * `onSelectExercise` is given, the library picks on tap instead.
+ *
+ * @param props - Dictionary state and optional pick handler
+ * @returns Inline shortcuts plus the library page
+ */
 export function ExercisePicker(props: ExercisePickerProps) {
-  const {
-    exercises,
-    isLoadingExercises,
-    isLoadingMuscleGroups,
-    muscleGroups,
-    onSearch,
-    onSelectExercise,
-    searchError,
-    token,
-  } = props;
   const { theme } = useTheme();
-  const [keyword, setKeyword] = useState("");
-  const [selectedMuscle, setSelectedMuscle] = useState("");
-  const [selectedExercise, setSelectedExercise] =
-    useState<DictionaryExercise | null>(null);
+  const { exercises, isLoadingExercises, searchError } = props;
+  const openOnMount = props.openLibraryOnMount ?? true;
+  const [libraryPart, setLibraryPart] = useState<LibraryPart | null>(null);
+  const [focusSearch, setFocusSearch] = useState(false);
+  const rail = useMemo(() => listLibraryRail(exercises), [exercises]);
 
-  // The design has no explicit search button: typing or switching the muscle
-  // filter searches directly, debounced so each keystroke is not a request.
   useEffect(() => {
-    const timerId = window.setTimeout(() => {
-      void onSearch({ muscle: selectedMuscle, q: keyword });
-    }, 250);
+    if (!openOnMount) {
+      return;
+    }
 
-    return () => {
-      window.clearTimeout(timerId);
-    };
-  }, [keyword, onSearch, selectedMuscle]);
+    const frame = requestAnimationFrame(() => setLibraryPart("胸"));
 
-  async function handleSubmit(
-    event: React.FormEvent<HTMLFormElement>,
-  ): Promise<void> {
-    event.preventDefault();
-    await onSearch({
-      muscle: selectedMuscle,
-      q: keyword,
-    });
-  }
+    return () => cancelAnimationFrame(frame);
+  }, [openOnMount]);
 
   return (
-    <section>
-      <form onSubmit={handleSubmit} style={formStyle}>
-        <input
-          aria-label="搜索动作名称"
-          disabled={isLoadingExercises}
-          onChange={(event) => setKeyword(event.target.value)}
-          placeholder="搜索动作名称"
-          style={searchInputStyle(theme)}
-          type="text"
-          value={keyword}
-        />
-        <select
-          aria-label="筛选肌群"
-          disabled={isLoadingExercises || isLoadingMuscleGroups}
-          onChange={(event) => setSelectedMuscle(event.target.value)}
-          style={selectStyle(theme)}
-          value={selectedMuscle}
-        >
-          <option style={optionStyle(theme)} value="">
-            全部肌群
-          </option>
-          {muscleGroups.map((muscleGroup) => (
-            <option
-              key={muscleGroup.id}
-              style={optionStyle(theme)}
-              value={muscleGroup.code}
-            >
-              {getMuscleGroupDisplayName(muscleGroup)}
-            </option>
-          ))}
-        </select>
-      </form>
+    <section style={{ display: "grid", gap: 10 }}>
+      <button
+        onClick={() => {
+          setFocusSearch(true);
+          setLibraryPart(rail[0]?.part ?? "胸");
+        }}
+        style={searchEntryStyle(theme)}
+        type="button"
+      >
+        <Icon name="search" size={15} />
+        <span>输入动作名字搜索</span>
+      </button>
 
       {searchError ? (
-        <div style={{ marginTop: 12 }}>
-          <StateNotice
-            description="动作库暂时无法加载，请确认服务已启动，或稍后重试。"
-            icon="search"
-            title="动作库加载失败"
-            tone="error"
-          />
-        </div>
+        <StateNotice
+          description="动作库暂时无法加载，请确认服务已启动，或稍后重试。"
+          icon="search"
+          title="动作库加载失败"
+          tone="error"
+        />
       ) : null}
 
-      {isLoadingMuscleGroups ? (
-        <p style={copyStyle(theme)}>正在加载肌群列表...</p>
+      {!searchError && isLoadingExercises && exercises.length === 0 ? (
+        <p style={copyStyle(theme)}>正在加载动作库...</p>
       ) : null}
 
-      {!searchError && !isLoadingExercises && exercises.length === 0 ? (
-        <div style={{ marginTop: 12 }}>
-          <StateNotice
-            description="换个关键词试试，或先切回全部肌群查看可用动作。"
-            icon="search"
-            title="暂时没有找到动作"
-          />
-        </div>
-      ) : null}
+      {!searchError && exercises.length > 0 ? (
+        <ul aria-label="按部位浏览" style={partGridStyle}>
+          {rail
+            .filter((entry) => entry.count > 0)
+            .map((entry) => {
+              const color = getBodyPartColor(
+                theme,
+                PART_COLOR[entry.part] ?? null,
+              );
 
-      {exercises.length > 0 ? (
-        <ul style={resultListStyle}>
-          {exercises.map((exercise) => {
-            const primaryMuscles = exercise.muscles
-              .filter((muscle) => muscle.is_primary)
-              .slice(0, 3)
-              .map((muscle) => muscle.code);
-
-            return (
-              <li key={exercise.id} style={{ listStyle: "none" }}>
-                {onSelectExercise ? (
+              return (
+                <li key={entry.part} style={{ listStyle: "none" }}>
                   <button
-                    onClick={() => setSelectedExercise(exercise)}
-                    style={resultCardStyle(theme, true)}
+                    onClick={() => {
+                      setFocusSearch(false);
+                      setLibraryPart(entry.part);
+                    }}
+                    style={partTileStyle(theme)}
                     type="button"
                   >
-                    <ExerciseResultContent
-                      exercise={exercise}
-                      primaryMuscles={primaryMuscles}
-                    />
+                    <span style={partNameRowStyle}>
+                      <span aria-hidden="true" style={partDotStyle(color)} />
+                      <strong style={{ fontSize: 13, fontWeight: 600 }}>
+                        {entry.part}
+                      </strong>
+                    </span>
+                    <span style={copyStyle(theme)}>{entry.count} 个动作</span>
                   </button>
-                ) : (
-                  <button
-                    onClick={() => setSelectedExercise(exercise)}
-                    style={resultCardStyle(theme, true)}
-                    type="button"
-                  >
-                    <ExerciseResultContent
-                      exercise={exercise}
-                      primaryMuscles={primaryMuscles}
-                    />
-                  </button>
-                )}
-              </li>
-            );
-          })}
+                </li>
+              );
+            })}
         </ul>
       ) : null}
 
-      <ExerciseDetailSheet
-        actionLabel="加入本次训练"
-        exercise={selectedExercise}
-        onClose={() => setSelectedExercise(null)}
-        onSelectExercise={
-          onSelectExercise
-            ? (exercise) => {
-                onSelectExercise(exercise);
-                setSelectedExercise(null);
-              }
-            : undefined
-        }
-        token={token}
-      />
+      {libraryPart !== null ? (
+        <ExerciseLibraryScreen
+          {...props}
+          autoFocusSearch={focusSearch}
+          initialPart={libraryPart}
+          isOpen
+          mode={props.onSelectExercise ? "add" : "browse"}
+          onClose={() => setLibraryPart(null)}
+          onSelectExercise={
+            props.onSelectExercise
+              ? (exercise) => {
+                  props.onSelectExercise?.(exercise);
+                  setLibraryPart(null);
+                }
+              : undefined
+          }
+        />
+      ) : null}
     </section>
   );
 }
 
-function ExerciseResultContent(props: {
-  exercise: DictionaryExercise;
-  primaryMuscles: string[];
-}) {
-  const movementLabel = getMovementPatternLabel(
-    props.exercise.movement_pattern,
-  );
-  const equipmentLabel = getEquipmentLabel(props.exercise.equipment);
-
-  return (
-    <>
-      <div style={titleRowStyle}>
-        <strong
-          style={{ fontSize: 13, fontWeight: 600, letterSpacing: "-0.1px" }}
-        >
-          {getExerciseDisplayName(props.exercise)}
-        </strong>
-        <div style={pillRowStyle}>
-          {movementLabel ? <Pill tone="analysis">{movementLabel}</Pill> : null}
-          {equipmentLabel ? <Pill tone="neutral">{equipmentLabel}</Pill> : null}
-          {props.primaryMuscles.map((muscleCode) => (
-            <Pill key={muscleCode} tone="accent">
-              {getMuscleCodeLabel(muscleCode)}
-            </Pill>
-          ))}
-        </div>
-      </div>
-      <span aria-hidden="true" style={chevronStyle}>
-        ›
-      </span>
-    </>
-  );
-}
-
-/** Design: search field + muscle filter share one row (1fr / 110px). */
-const formStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 8,
-  gridTemplateColumns: "1fr 110px",
-};
-
-/** Design: soft-filled search input inside the library section. */
-function searchInputStyle(
+function searchEntryStyle(
   theme: ReturnType<typeof useTheme>["theme"],
 ): React.CSSProperties {
   return {
-    background: theme.colors.soft,
+    alignItems: "center",
+    backgroundColor: theme.colors.soft,
     border: `1px solid ${theme.colors.bdr}`,
-    borderRadius: 12,
-    color: theme.colors.tx,
-    font: "inherit",
+    borderRadius: theme.radius.capsule,
+    color: theme.colors.tx3,
+    cursor: "pointer",
+    display: "flex",
     fontSize: 13,
-    padding: "9px 10px",
+    gap: 8,
+    height: 40,
+    padding: "0 14px",
+    textAlign: "left",
     width: "100%",
   };
 }
 
-const resultListStyle: React.CSSProperties = {
+const partGridStyle: React.CSSProperties = {
   display: "grid",
   gap: 8,
-  listStyle: "none",
-  margin: "8px 0 0",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  margin: 0,
   padding: 0,
 };
 
-const titleRowStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 4,
-  minWidth: 0,
-};
-
-const pillRowStyle: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: 6,
-};
-
-/** Design: trailing chevron on each library row. */
-const chevronStyle: React.CSSProperties = {
-  flex: "0 0 auto",
-  opacity: 0.6,
-};
-
-function copyStyle(
+function partTileStyle(
   theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    color: theme.colors.tx2,
-    fontSize: 12,
-    lineHeight: 1.6,
-    margin: "12px 0 0",
-  };
-}
-
-/**
- * Muscle filter select.
- *
- * @remarks
- * The background must stay opaque: the native dropdown paints its option list
- * with this color, so a translucent token (e.g. `divider`) makes the options and
- * the highlighted row unreadable. Options get explicit colors for the same
- * reason — they are rendered by the OS, not by the surrounding CSS.
- *
- * @param theme - Active theme tokens
- * @returns The select control style
- */
-function selectStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    backgroundColor: theme.colors.surf2,
-    border: `1px solid ${theme.colors.bdr2}`,
-    borderRadius: 12,
-    color: theme.colors.tx,
-    font: "inherit",
-    fontSize: 13,
-    fontWeight: 600,
-    padding: "9px 8px",
-    width: "100%",
-  };
-}
-
-function optionStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    backgroundColor: theme.colors.surf,
-    color: theme.colors.tx,
-  };
-}
-
-function resultCardStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-  isSelectable: boolean,
 ): React.CSSProperties {
   return {
     alignItems: "center",
@@ -323,12 +191,40 @@ function resultCardStyle(
     border: "none",
     borderRadius: 14,
     color: theme.colors.tx,
-    cursor: isSelectable ? "pointer" : "default",
+    cursor: "pointer",
     display: "flex",
-    gap: 8,
-    justifyContent: "space-between",
-    padding: "12px 13px",
-    textAlign: "left",
+    flexDirection: "column",
+    gap: 4,
+    padding: "12px 6px",
+    textAlign: "center",
+    transition: `background-color ${MOTION.quickMs}ms ${MOTION.standard}`,
     width: "100%",
+  };
+}
+
+const partNameRowStyle: React.CSSProperties = {
+  alignItems: "center",
+  display: "inline-flex",
+  gap: 6,
+};
+
+function partDotStyle(color: string): React.CSSProperties {
+  return {
+    backgroundColor: color,
+    borderRadius: "50%",
+    flex: "0 0 auto",
+    height: 8,
+    width: 8,
+  };
+}
+
+function copyStyle(
+  theme: ReturnType<typeof useTheme>["theme"],
+): React.CSSProperties {
+  return {
+    color: theme.colors.tx2,
+    fontSize: 11,
+    lineHeight: 1.5,
+    margin: 0,
   };
 }

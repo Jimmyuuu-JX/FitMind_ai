@@ -1,29 +1,56 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { ExercisePickerProps } from "./ExercisePicker";
 import type { DictionaryExercise } from "./dictionary-api";
 
 import { ActionSheet } from "../../components/ActionSheet";
 import { Button } from "../../components/Button";
-import { Icon } from "../../components/Icon";
+import { SlideUpPage } from "../../components/SlideUpPage";
 import { StateNotice } from "../../components/StateNotice";
+import { usePrefersReducedMotion } from "../../components/motion";
 import { useTheme } from "../../theme/ThemeContext";
+import { createAnalysisRange } from "./analysis-range";
 import { ExerciseLibraryScreen } from "./ExerciseLibraryScreen";
+import {
+  ExerciseProgressSheet,
+  type ExerciseProgressSheetExercise,
+} from "./ExerciseProgressSheet";
+import {
+  TrainingSessionHeader,
+  TrainingSessionMinimizedPill,
+  TrainingSessionToolbar,
+  type ToolbarAction,
+} from "./TrainingSessionChrome";
 import { TrainingSessionEmptyState } from "./TrainingSessionEmptyState";
 import { TrainingSessionExerciseCard } from "./TrainingSessionExerciseCard";
+import { SessionIcon } from "./TrainingSessionIcons";
+import { TrainingSessionNotesPage } from "./TrainingSessionNotesPage";
+import {
+  TrainingSessionPopover,
+  type PopoverAnchor,
+  type PopoverMenuItem,
+} from "./TrainingSessionPopover";
 import {
   TrainingSessionRestTimer,
   type RestTimerState,
 } from "./TrainingSessionRestTimer";
-import { TrainingSessionTimer } from "./TrainingSessionTimer";
+import { TrainingSessionReveal } from "./TrainingSessionReveal";
 import {
   createDraftExercise,
   getCompletedValidSetCount,
   getExerciseLoadType,
+  isDraftSetValid,
   type DraftExercise,
   type DraftSet,
   type TrainingSessionInitialDraft,
 } from "./training-session-draft";
+import { getSessionProgress } from "./training-session-progress";
+import {
+  appendNextSetAfterCompletion,
+  clearDraftSetValues,
+  completeDraftSetWithRest,
+  toggleExpandedExercise,
+} from "./training-session-set-actions";
 import {
   addDraftSet,
   copyDraftSet,
@@ -41,7 +68,6 @@ import {
   getExerciseCategoryLabel as getDisplayExerciseCategoryLabel,
   getExerciseDisplayName,
 } from "./exercise-display";
-import { useFabGesture, type FabAction } from "./use-fab-gesture";
 import { WorkoutIntakePanel } from "./WorkoutIntakePanel";
 import type { WorkoutIntakeDraft } from "./workout-intake-api";
 import {
@@ -63,8 +89,23 @@ export interface TrainingSessionComposerProps {
   token: string | null;
 }
 
+/** Rest length used when ticking a set starts the countdown automatically. */
+const DEFAULT_REST_SECONDS = 90;
+
+/**
+ * The 训练记录 page, used to log a live workout and to edit a past one.
+ *
+ * Slides up over the app as a full page (above the history detail page),
+ * modelled on 训记's session screen: big clock, done/total progress,
+ * accordion exercise cards with per-set tiles, anchored menus, and a bottom
+ * toolbar. A live session can be minimized to a floating capsule.
+ *
+ * @param props - Mode, initial draft and lifecycle callbacks
+ * @returns Session page and its overlays
+ */
 export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
   const { theme } = useTheme();
+  const reducedMotion = usePrefersReducedMotion();
   const [draftExercises, setDraftExercises] = useState<DraftExercise[]>([]);
   const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -74,25 +115,40 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
   const [draftNote, setDraftNote] = useState("");
   const [draftPerformedAt, setDraftPerformedAt] = useState<string | null>(null);
   const [draftStartedAt, setDraftStartedAt] = useState<string | null>(null);
+  const [historyExercise, setHistoryExercise] =
+    useState<ExerciseProgressSheetExercise | null>(null);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  /** Set once the save went through, so a slow close can't save twice. */
+  const [isSaved, setIsSaved] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTimeEditorOpen, setIsTimeEditorOpen] = useState(false);
+  const [leavingExerciseIds, setLeavingExerciseIds] = useState<string[]>([]);
+  const [moreMenuAnchor, setMoreMenuAnchor] = useState<PopoverAnchor | null>(
+    null,
+  );
   const [pendingExerciseRemovalId, setPendingExerciseRemovalId] = useState<
     string | null
   >(null);
-  const [pendingRestTimerRequest, setPendingRestTimerRequest] = useState<
+  const [pendingRestTimerRequest, setPendingRestTimerRequest] = useState<{
+    setId: string | undefined;
+  } | null>(null);
+  const [pendingScrollExerciseId, setPendingScrollExerciseId] = useState<
     string | null
   >(null);
   const [replacingDraftExerciseId, setReplacingDraftExerciseId] = useState<
     string | null
   >(null);
+  const [restPresetSeconds, setRestPresetSeconds] =
+    useState(DEFAULT_REST_SECONDS);
   const [restTimer, setRestTimer] = useState<RestTimerState | null>(null);
   const [isVoiceSheetOpen, setIsVoiceSheetOpen] = useState(false);
   const [appendNotice, setAppendNotice] = useState<string | null>(null);
   const mode = props.mode ?? "create_active";
   const isActiveSession = mode === "create_active";
-  const fabGesture = useFabGesture({ onSelect: handleFabSelect });
+  const historyRange = useMemo(() => createAnalysisRange("all"), []);
 
   useEffect(() => {
     if (!props.isOpen || !isActiveSession || !isRunning) {
@@ -108,18 +164,20 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
     };
   }, [isActiveSession, isRunning, props.isOpen]);
 
+  // Start every visit from a clean (or the supplied) draft. Resetting on open
+  // rather than on close keeps the content on screen while the page slides
+  // away.
   useEffect(() => {
     if (!props.isOpen) {
-      resetComposerState();
-    }
-  }, [props.isOpen]);
-
-  useEffect(() => {
-    if (!props.isOpen || !props.initialDraft) {
       return;
     }
 
     resetComposerState();
+
+    if (!props.initialDraft) {
+      return;
+    }
+
     setDraftExercises(props.initialDraft.exercises);
     setElapsedSeconds((props.initialDraft.durationMin ?? 0) * 60);
     setDraftDurationMin(props.initialDraft.durationMin);
@@ -164,334 +222,434 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
     };
   }, [props.isOpen, restTimer?.status]);
 
-  if (!props.isOpen) {
-    return null;
-  }
+  useEffect(() => {
+    if (!pendingScrollExerciseId) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      document
+        .getElementById(`training-session-exercise-${pendingScrollExerciseId}`)
+        ?.scrollIntoView({
+          behavior: reducedMotion ? "auto" : "smooth",
+          block: "nearest",
+        });
+      setPendingScrollExerciseId(null);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingScrollExerciseId, reducedMotion]);
 
   const completedValidSetCount = getCompletedValidSetCount(draftExercises);
+  const progress = getSessionProgress(draftExercises);
+  const hasExpandedExercise = draftExercises.some((item) => item.isExpanded);
+  const timeSummary = formatTrainingTimeSummary({
+    durationMin: draftDurationMin,
+    endedAt: draftEndedAt,
+    performedAt: draftPerformedAt,
+    startedAt: draftStartedAt,
+  });
+  const notesAction: ToolbarAction = {
+    icon: "note",
+    isMarked: draftNote.trim().length > 0,
+    key: "notes",
+    label: "写心得",
+    onClick: () => setIsNotesOpen(true),
+  };
+  const moreAction: ToolbarAction = {
+    icon: "more-grid",
+    key: "more",
+    label: "更多",
+    onClick: (trigger) => setMoreMenuAnchor(trigger.getBoundingClientRect()),
+  };
+  const toolbarLeading: ToolbarAction[] = isActiveSession
+    ? [
+        {
+          icon: "minimize",
+          key: "minimize",
+          label: "最小化",
+          onClick: () => setIsMinimized(true),
+        },
+        moreAction,
+      ]
+    : [moreAction];
+  const toolbarTrailing: ToolbarAction[] = isActiveSession
+    ? [
+        notesAction,
+        {
+          icon: "timer",
+          key: "rest",
+          label: "休息",
+          onClick: () => handleOpenRestTimer(getLastCompletedSetId()),
+        },
+      ]
+    : [notesAction];
 
   return (
-    <section style={composerStyle}>
-      <div style={backdropStyle(theme)} />
-      <div style={panelStyle(theme)}>
-        <header style={headerStyle(theme)}>
-          <div style={headerTopRowStyle}>
+    <>
+      <SlideUpPage
+        ariaLabel="训练记录"
+        footer={
+          <>
+            <TrainingSessionRestTimer
+              onClose={() => setRestTimer(null)}
+              onConfirmDuration={handleConfirmRestTimerDuration}
+              onToggleRunning={handleToggleRestTimerRunning}
+              timer={restTimer}
+            />
+            <TrainingSessionToolbar
+              leading={toolbarLeading}
+              onAdd={() => void handleOpenLibrary()}
+              trailing={toolbarTrailing}
+            />
+            <ExerciseLibraryScreen
+              isOpen={isLibraryOpen}
+              mode={replacingDraftExerciseId ? "replace" : "add"}
+              onClose={() => {
+                setIsLibraryOpen(false);
+                setReplacingDraftExerciseId(null);
+              }}
+              onSelectExercise={handleSelectExercise}
+              token={props.token}
+              {...props.exerciseLibraryProps}
+            />
+          </>
+        }
+        header={
+          <TrainingSessionHeader
+            canComplete={completedValidSetCount > 0 && !isSaved}
+            durationMin={draftDurationMin}
+            elapsedSeconds={elapsedSeconds}
+            isActiveSession={isActiveSession}
+            isRunning={isRunning}
+            isSubmitting={isSubmitting}
+            onCancel={handleCancel}
+            onComplete={() => void handleComplete()}
+            onEditTime={openTimeEditor}
+            onToggleRunning={handleToggleSessionRunning}
+            progress={progress}
+            timeSummary={timeSummary}
+          />
+        }
+        onClose={handleEscape}
+        open={props.isOpen && !isMinimized}
+        variant="full"
+      >
+        <main onClick={collapseExpandedExercises} style={bodyStyle}>
+          {duplicateNotice ? (
+            <TrainingSessionReveal
+              key={`duplicate-${duplicateNotice}`}
+              spacing={12}
+            >
+              <StateNotice
+                description={duplicateNotice}
+                title="动作已存在"
+                tone="warning"
+              />
+            </TrainingSessionReveal>
+          ) : null}
+
+          {errorMessage ? (
+            <TrainingSessionReveal key={`error-${errorMessage}`} spacing={12}>
+              <StateNotice
+                description={translateErrorMessage(errorMessage)}
+                title="训练保存失败"
+                tone="error"
+              />
+            </TrainingSessionReveal>
+          ) : null}
+
+          {appendNotice ? (
+            <TrainingSessionReveal key={`append-${appendNotice}`} spacing={12}>
+              <StateNotice description={appendNotice} title="已追加动作" />
+            </TrainingSessionReveal>
+          ) : null}
+
+          {draftExercises.length === 0 ? (
+            <TrainingSessionEmptyState
+              onAddActionClick={() => void handleOpenLibrary()}
+            />
+          ) : (
+            <div>
+              {draftExercises.map((draftExercise, index) => (
+                <TrainingSessionReveal
+                  isLeaving={leavingExerciseIds.includes(draftExercise.id)}
+                  key={draftExercise.id}
+                  onExited={() => finishRemoveExercise(draftExercise.id)}
+                  spacing={12}
+                >
+                  <TrainingSessionExerciseCard
+                    canMoveDown={index < draftExercises.length - 1}
+                    canMoveUp={index > 0}
+                    draftExercise={draftExercise}
+                    onAddSet={() => handleAddSet(draftExercise.id)}
+                    onClearSet={(setId) =>
+                      handleClearSet(draftExercise.id, setId)
+                    }
+                    onCopySet={(setId) =>
+                      handleCopySet(draftExercise.id, setId)
+                    }
+                    onDeleteSet={(setId) =>
+                      handleDeleteSet(draftExercise.id, setId)
+                    }
+                    onMoveDown={() =>
+                      handleMoveExercise(draftExercise.id, "down")
+                    }
+                    onMoveUp={() => handleMoveExercise(draftExercise.id, "up")}
+                    onRemove={() => handleRemoveExercise(draftExercise.id)}
+                    onReplace={() =>
+                      handleStartReplaceExercise(draftExercise.id)
+                    }
+                    onResolveCandidate={handleResolveCandidate}
+                    onShowHistory={getShowHistoryHandler(draftExercise)}
+                    onStartRestTimer={handleOpenRestTimer}
+                    onToggleExpanded={() =>
+                      handleToggleExpanded(draftExercise.id)
+                    }
+                    onToggleSetCompleted={(setId) =>
+                      handleToggleSetCompleted(draftExercise.id, setId)
+                    }
+                    onUpdateSet={(setId, field, value) =>
+                      handleUpdateSet(draftExercise.id, setId, field, value)
+                    }
+                  />
+                </TrainingSessionReveal>
+              ))}
+            </div>
+          )}
+
+          {draftNote.trim() ? (
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsNotesOpen(true);
+              }}
+              style={notePreviewStyle(theme)}
+              type="button"
+            >
+              <span style={notePreviewHeadStyle(theme)}>
+                <SessionIcon name="note" size={16} />
+                训练备注
+              </span>
+              <span style={notePreviewTextStyle(theme)}>{draftNote}</span>
+            </button>
+          ) : null}
+        </main>
+      </SlideUpPage>
+
+      <TrainingSessionMinimizedPill
+        elapsedSeconds={elapsedSeconds}
+        isRunning={isRunning}
+        onRestore={() => setIsMinimized(false)}
+        open={props.isOpen && isMinimized}
+      />
+
+      <TrainingSessionNotesPage
+        note={draftNote}
+        onClose={() => setIsNotesOpen(false)}
+        onSave={(nextNote) => {
+          setDraftNote(nextNote);
+          setIsNotesOpen(false);
+        }}
+        open={props.isOpen && isNotesOpen}
+      />
+
+      <TrainingSessionPopover
+        anchor={moreMenuAnchor}
+        ariaLabel="更多操作"
+        items={buildMoreMenu()}
+        onClose={() => setMoreMenuAnchor(null)}
+      />
+
+      <ActionSheet
+        description="说出动作、重量、次数和组数，确认后会追加到本次训练，不会覆盖已记录的动作。"
+        onClose={() => setIsVoiceSheetOpen(false)}
+        open={props.isOpen && isVoiceSheetOpen}
+        title="语音追加动作"
+      >
+        <WorkoutIntakePanel
+          exerciseLibraryProps={props.exerciseLibraryProps}
+          onDraftParsed={handleAppendIntakeDraft}
+          token={props.token}
+        />
+      </ActionSheet>
+
+      <ActionSheet
+        footer={
+          <div style={confirmActionRowStyle}>
             <Button
-              disabled={isSubmitting}
-              onClick={handleCancel}
+              onClick={() => setPendingExerciseRemovalId(null)}
               type="button"
               variant="secondary"
             >
               取消
             </Button>
             <Button
-              disabled={completedValidSetCount === 0 || isSubmitting}
-              onClick={() => void handleComplete()}
+              onClick={() => {
+                if (pendingExerciseRemovalId) {
+                  confirmRemoveExercise(pendingExerciseRemovalId);
+                }
+              }}
+              style={dangerConfirmButtonStyle(theme)}
               type="button"
+              variant="secondary"
             >
-              {isSubmitting ? "保存中..." : "完成"}
+              移除
             </Button>
           </div>
+        }
+        onClose={() => setPendingExerciseRemovalId(null)}
+        open={props.isOpen && pendingExerciseRemovalId !== null}
+        title="移除这个动作？"
+        tone="danger"
+      >
+        <p style={confirmCopyStyle(theme)}>该动作下的训练组也会一起移除。</p>
+      </ActionSheet>
 
-          <div style={headerBodyStyle}>
-            {isActiveSession ? (
-              <TrainingSessionTimer
-                elapsedSeconds={elapsedSeconds}
-                isRunning={isRunning}
-                onToggleRunning={handleToggleSessionRunning}
-              />
-            ) : (
-              <button
-                onClick={() => setIsTimeEditorOpen(true)}
-                style={intakeTimeButtonStyle(theme)}
-                type="button"
-              >
-                <span>{"\u8bad\u7ec3\u65f6\u95f4"}</span>
-                <strong>
-                  {formatTrainingTimeSummary({
-                    durationMin: draftDurationMin,
-                    endedAt: draftEndedAt,
-                    performedAt: draftPerformedAt,
-                    startedAt: draftStartedAt,
-                  })}
-                </strong>
-              </button>
-            )}
-
-            <div style={statusWrapStyle}>
-              <div style={statusPillStyle(theme)}>
-                <Icon name={isRunning ? "clock" : "stop"} size={14} />
-                <span>{isRunning ? "训练进行中" : "等待开始"}</span>
-              </div>
-              <p style={statusCopyStyle(theme)}>
-                {completedValidSetCount > 0
-                  ? `已完成 ${completedValidSetCount} 组，可保存训练`
-                  : "请先添加至少一个动作和训练组。"}
-              </p>
-            </div>
+      <ActionSheet
+        footer={
+          <div style={confirmActionRowStyle}>
+            <Button
+              onClick={() => setPendingRestTimerRequest(null)}
+              type="button"
+              variant="secondary"
+            >
+              取消
+            </Button>
+            <Button
+              onClick={() => {
+                openRestTimerSelector(pendingRestTimerRequest?.setId);
+                setPendingRestTimerRequest(null);
+              }}
+              type="button"
+            >
+              替换
+            </Button>
           </div>
-        </header>
+        }
+        onClose={() => setPendingRestTimerRequest(null)}
+        open={props.isOpen && pendingRestTimerRequest !== null}
+        title="已有休息倒计时正在进行，是否替换？"
+      >
+        <p style={confirmCopyStyle(theme)}>
+          新的倒计时会替换当前正在进行的休息。
+        </p>
+      </ActionSheet>
 
-        <main
-          onClick={collapseExpandedExercises}
-          style={bodyStyle(Boolean(restTimer))}
-        >
-          {duplicateNotice ? (
-            <StateNotice
-              description={duplicateNotice}
-              title="动作已存在"
-              tone="warning"
-            />
-          ) : null}
+      <TrainingTimeEditor
+        endedAt={draftEndedAt}
+        onClose={() => setIsTimeEditorOpen(false)}
+        onSave={(nextValue) => {
+          setDraftStartedAt(nextValue.startedAt);
+          setDraftEndedAt(nextValue.endedAt);
+          setDraftDurationMin(nextValue.durationMin);
+          if (nextValue.startedAt) {
+            setDraftPerformedAt(nextValue.startedAt);
+          }
+          setIsTimeEditorOpen(false);
+        }}
+        open={props.isOpen && isTimeEditorOpen}
+        performedAt={draftPerformedAt}
+        startedAt={draftStartedAt}
+      />
 
-          {errorMessage ? (
-            <StateNotice
-              description={translateErrorMessage(errorMessage)}
-              title="训练保存失败"
-              tone="error"
-            />
-          ) : null}
-
-          {appendNotice ? (
-            <StateNotice description={appendNotice} title="已追加动作" />
-          ) : null}
-
-          {draftExercises.length === 0 ? (
-            <TrainingSessionEmptyState />
-          ) : (
-            <div style={exerciseListStyle}>
-              {draftExercises.map((draftExercise, index) => (
-                <TrainingSessionExerciseCard
-                  canMoveDown={index < draftExercises.length - 1}
-                  canMoveUp={index > 0}
-                  draftExercise={draftExercise}
-                  key={draftExercise.id}
-                  onAddSet={() => handleAddSet(draftExercise.id)}
-                  onCopySet={(setId) => handleCopySet(draftExercise.id, setId)}
-                  onDeleteSet={(setId) =>
-                    handleDeleteSet(draftExercise.id, setId)
-                  }
-                  onMoveDown={() =>
-                    handleMoveExercise(draftExercise.id, "down")
-                  }
-                  onMoveUp={() => handleMoveExercise(draftExercise.id, "up")}
-                  onRemove={() => handleRemoveExercise(draftExercise.id)}
-                  onReplace={() => handleStartReplaceExercise(draftExercise.id)}
-                  onResolveCandidate={handleResolveCandidate}
-                  onStartRestTimer={handleOpenRestTimer}
-                  onToggleExpanded={() =>
-                    handleToggleExpanded(draftExercise.id)
-                  }
-                  onToggleSetCompleted={(setId) =>
-                    handleToggleSetCompleted(draftExercise.id, setId)
-                  }
-                  onUpdateSet={(setId, field, value) =>
-                    handleUpdateSet(draftExercise.id, setId, field, value)
-                  }
-                />
-              ))}
-            </div>
-          )}
-
-          <label
-            onClick={(event) => event.stopPropagation()}
-            style={noteEditorStyle(theme)}
-          >
-            {"\u5907\u6ce8"}
-            <textarea
-              onChange={(event) => setDraftNote(event.target.value)}
-              placeholder={"\u672c\u6b21\u8bad\u7ec3\u5907\u6ce8"}
-              style={noteTextareaStyle(theme)}
-              value={draftNote}
-            />
-          </label>
-        </main>
-
-        <style>{FAB_KEYFRAMES}</style>
-
-        {fabGesture.isOpen ? (
-          <button
-            aria-label="收起"
-            onClick={fabGesture.close}
-            style={fabDialBackdropStyle}
-            tabIndex={-1}
-            type="button"
-          />
-        ) : null}
-
-        <div style={fabWrapStyle}>
-          <button
-            aria-label="语音追加动作"
-            onClick={() => fabGesture.select("voice")}
-            style={fabSatelliteStyle(
-              theme,
-              "voice",
-              fabGesture.isOpen,
-              fabGesture.activeAction === "voice",
-            )}
-            tabIndex={fabGesture.isOpen ? 0 : -1}
-            type="button"
-          >
-            <Icon name="mic" size={20} />
-          </button>
-
-          <button
-            aria-label="打开动作库"
-            onClick={() => fabGesture.select("library")}
-            style={fabSatelliteStyle(
-              theme,
-              "library",
-              fabGesture.isOpen,
-              fabGesture.activeAction === "library",
-            )}
-            tabIndex={fabGesture.isOpen ? 0 : -1}
-            type="button"
-          >
-            <Icon name="dumbbell" size={20} />
-          </button>
-
-          {!fabGesture.isOpen ? (
-            <span aria-hidden="true" style={fabPulseStyle(theme)} />
-          ) : null}
-
-          <button
-            aria-label={
-              fabGesture.isOpen
-                ? "收起"
-                : "添加动作（长按展开：上滑语音、左滑动作库）"
-            }
-            style={fabStyle(theme, fabGesture.isOpen)}
-            type="button"
-            {...fabGesture.buttonHandlers}
-          >
-            <span style={fabPlusIconStyle(fabGesture.isOpen)}>
-              <Icon name="plus" size={24} />
-            </span>
-          </button>
-        </div>
-
-        <ActionSheet
-          description="说出动作、重量、次数和组数，确认后会追加到本次训练，不会覆盖已记录的动作。"
-          onClose={() => setIsVoiceSheetOpen(false)}
-          open={isVoiceSheetOpen}
-          title="语音追加动作"
-        >
-          <WorkoutIntakePanel
-            exerciseLibraryProps={props.exerciseLibraryProps}
-            onDraftParsed={handleAppendIntakeDraft}
-            token={props.token}
-          />
-        </ActionSheet>
-
-        {restTimer ? (
-          <TrainingSessionRestTimer
-            onClose={() => setRestTimer(null)}
-            onConfirmDuration={handleConfirmRestTimerDuration}
-            onToggleRunning={handleToggleRestTimerRunning}
-            timer={restTimer}
-          />
-        ) : null}
-
-        {pendingExerciseRemovalId ? (
-          <div style={confirmBackdropStyle(theme)}>
-            <section style={confirmCardStyle(theme)}>
-              <strong style={confirmTitleStyle(theme)}>移除这个动作？</strong>
-              <p style={confirmCopyStyle(theme)}>
-                该动作下的训练组也会一起移除。
-              </p>
-              <div style={confirmActionRowStyle}>
-                <Button
-                  onClick={() => setPendingExerciseRemovalId(null)}
-                  type="button"
-                  variant="secondary"
-                >
-                  取消
-                </Button>
-                <Button
-                  onClick={() =>
-                    confirmRemoveExercise(pendingExerciseRemovalId)
-                  }
-                  style={dangerConfirmButtonStyle(theme)}
-                  type="button"
-                  variant="secondary"
-                >
-                  移除
-                </Button>
-              </div>
-            </section>
-          </div>
-        ) : null}
-
-        {pendingRestTimerRequest ? (
-          <div style={confirmBackdropStyle(theme)}>
-            <section style={confirmCardStyle(theme)}>
-              <strong style={confirmTitleStyle(theme)}>
-                已有休息倒计时正在进行，是否替换？
-              </strong>
-              <div style={confirmActionRowStyle}>
-                <Button
-                  onClick={() => setPendingRestTimerRequest(null)}
-                  type="button"
-                  variant="secondary"
-                >
-                  取消
-                </Button>
-                <Button
-                  onClick={() => {
-                    openRestTimerSelector(pendingRestTimerRequest);
-                    setPendingRestTimerRequest(null);
-                  }}
-                  type="button"
-                >
-                  替换
-                </Button>
-              </div>
-            </section>
-          </div>
-        ) : null}
-
-        {isLibraryOpen ? (
-          <ExerciseLibraryScreen
-            isOpen={isLibraryOpen}
-            mode={replacingDraftExerciseId ? "replace" : "add"}
-            onClose={() => {
-              setIsLibraryOpen(false);
-              setReplacingDraftExerciseId(null);
-            }}
-            onSelectExercise={handleSelectExercise}
-            token={props.token}
-            {...props.exerciseLibraryProps}
-          />
-        ) : null}
-
-        {isTimeEditorOpen ? (
-          <TrainingTimeEditor
-            endedAt={draftEndedAt}
-            onClose={() => setIsTimeEditorOpen(false)}
-            onSave={(nextValue) => {
-              setDraftStartedAt(nextValue.startedAt);
-              setDraftEndedAt(nextValue.endedAt);
-              setDraftDurationMin(nextValue.durationMin);
-              if (nextValue.startedAt) {
-                setDraftPerformedAt(nextValue.startedAt);
-              }
-              setIsTimeEditorOpen(false);
-            }}
-            performedAt={draftPerformedAt}
-            startedAt={draftStartedAt}
-          />
-        ) : null}
-      </div>
-    </section>
+      {props.isOpen ? (
+        <ExerciseProgressSheet
+          exercise={historyExercise}
+          onClose={() => setHistoryExercise(null)}
+          range={historyRange}
+          rangeKey="all"
+          refreshSignal={0}
+          token={props.token}
+        />
+      ) : null}
+    </>
   );
+
+  function buildMoreMenu(): PopoverMenuItem[] {
+    const items: PopoverMenuItem[] = [
+      {
+        key: "voice",
+        label: "语音追加动作",
+        onSelect: () => {
+          setDuplicateNotice(null);
+          setErrorMessage(null);
+          setAppendNotice(null);
+          setIsVoiceSheetOpen(true);
+        },
+      },
+    ];
+
+    if (!isActiveSession) {
+      items.push({
+        key: "time",
+        label: "修改训练时间",
+        onSelect: openTimeEditor,
+      });
+    }
+
+    items.push({
+      disabled: !hasExpandedExercise,
+      key: "collapse",
+      label: "全部收起",
+      onSelect: collapseExpandedExercises,
+    });
+
+    return items;
+  }
+
+  function getShowHistoryHandler(
+    draftExercise: DraftExercise,
+  ): (() => void) | undefined {
+    const exerciseId = draftExercise.exerciseId;
+
+    if (
+      !props.token ||
+      !exerciseId ||
+      draftExercise.matchStatus !== "matched"
+    ) {
+      return undefined;
+    }
+
+    return () =>
+      setHistoryExercise({
+        exercise_id: exerciseId,
+        exercise_name: draftExercise.name,
+      });
+  }
+
+  function handleEscape(): void {
+    // Overlays on top of the page handle their own Escape; only the bare
+    // page reacts, and only non-destructively (a live session minimizes).
+    if (
+      isLibraryOpen ||
+      isNotesOpen ||
+      isVoiceSheetOpen ||
+      isTimeEditorOpen ||
+      moreMenuAnchor ||
+      historyExercise ||
+      pendingExerciseRemovalId ||
+      pendingRestTimerRequest ||
+      restTimer?.status === "selecting"
+    ) {
+      return;
+    }
+
+    if (isActiveSession) {
+      setIsMinimized(true);
+    }
+  }
 
   function handleCancel(): void {
     if (isSubmitting) {
       return;
     }
 
-    resetComposerState();
     props.onCancel();
+  }
+
+  function openTimeEditor(): void {
+    setIsTimeEditorOpen(true);
   }
 
   async function handleOpenLibrary(): Promise<void> {
@@ -500,18 +658,6 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
     setAppendNotice(null);
     setReplacingDraftExerciseId(null);
     setIsLibraryOpen(true);
-  }
-
-  function handleFabSelect(action: FabAction): void {
-    if (action === "voice") {
-      setDuplicateNotice(null);
-      setErrorMessage(null);
-      setAppendNotice(null);
-      setIsVoiceSheetOpen(true);
-      return;
-    }
-
-    void handleOpenLibrary();
   }
 
   function handleAppendIntakeDraft(draft: WorkoutIntakeDraft): void {
@@ -535,83 +681,70 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
   }
 
   function handleSelectExercise(exercise: DictionaryExercise): void {
-    setDraftExercises((currentValue) => {
-      if (replacingDraftExerciseId) {
-        const alreadyExists = currentValue.some((item) => {
-          return (
-            item.id !== replacingDraftExerciseId &&
-            item.exerciseId === exercise.id
-          );
-        });
-
-        if (alreadyExists) {
-          setDuplicateNotice("这个动作已经在本次训练中，不能替换为重复动作。");
-          return currentValue;
-        }
-
-        setDuplicateNotice(null);
-        return currentValue.map((draftExercise) => {
-          if (draftExercise.id !== replacingDraftExerciseId) {
-            return draftExercise;
-          }
-
-          return {
-            ...draftExercise,
-            categoryLabel: getDisplayExerciseCategoryLabel(exercise),
-            exercise,
-            exerciseId: exercise.id,
-            loadType: getExerciseLoadType(exercise),
-            matchStatus: "matched",
-            name: getExerciseDisplayName(exercise),
-          };
-        });
-      }
-
-      const alreadyExists = currentValue.some(
-        (item) => item.exerciseId === exercise.id,
-      );
+    if (replacingDraftExerciseId) {
+      const alreadyExists = draftExercises.some((item) => {
+        return (
+          item.id !== replacingDraftExerciseId &&
+          item.exerciseId === exercise.id
+        );
+      });
 
       if (alreadyExists) {
-        setDuplicateNotice("这个动作已经在本次训练中");
-        return currentValue;
+        setDuplicateNotice("这个动作已经在本次训练中，不能替换为重复动作。");
+      } else {
+        setDuplicateNotice(null);
+        setDraftExercises((currentValue) =>
+          currentValue.map((draftExercise) => {
+            if (draftExercise.id !== replacingDraftExerciseId) {
+              return draftExercise;
+            }
+
+            return {
+              ...draftExercise,
+              categoryLabel: getDisplayExerciseCategoryLabel(exercise),
+              exercise,
+              exerciseId: exercise.id,
+              loadType: getExerciseLoadType(exercise),
+              matchStatus: "matched",
+              name: getExerciseDisplayName(exercise),
+            };
+          }),
+        );
       }
+    } else if (draftExercises.some((item) => item.exerciseId === exercise.id)) {
+      setDuplicateNotice("这个动作已经在本次训练中");
+    } else {
+      const addedExercise = createDraftExercise(
+        exercise,
+        getDisplayExerciseCategoryLabel(exercise),
+      );
 
       setDuplicateNotice(null);
-      return [
-        ...currentValue,
-        createDraftExercise(
-          exercise,
-          getDisplayExerciseCategoryLabel(exercise),
+      setDraftExercises((currentValue) =>
+        toggleExpandedExercise(
+          [...currentValue, addedExercise],
+          addedExercise.id,
         ),
-      ];
-    });
+      );
+      setPendingScrollExerciseId(addedExercise.id);
+    }
+
     setIsLibraryOpen(false);
     setReplacingDraftExerciseId(null);
   }
 
   function handleToggleExpanded(exerciseId: string): void {
-    setDraftExercises((currentValue) => {
-      return currentValue.map((draftExercise) => {
-        if (draftExercise.id !== exerciseId) {
-          return draftExercise;
-        }
-
-        return {
-          ...draftExercise,
-          isExpanded: !draftExercise.isExpanded,
-        };
-      });
-    });
+    setDraftExercises((currentValue) =>
+      toggleExpandedExercise(currentValue, exerciseId),
+    );
   }
 
   function handleToggleSessionRunning(): void {
-    setIsRunning((currentValue) => {
-      if (!currentValue && !draftStartedAt) {
-        setDraftStartedAt(new Date().toISOString());
-      }
+    if (!isRunning && !draftStartedAt) {
+      setDraftStartedAt(new Date().toISOString());
+    }
 
-      return !currentValue;
-    });
+    setIsRunning(!isRunning);
   }
 
   function collapseExpandedExercises(): void {
@@ -682,20 +815,32 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
       return;
     }
 
-    setDraftExercises((currentValue) => {
-      return currentValue.filter(
-        (draftExercise) => draftExercise.id !== exerciseId,
-      );
-    });
+    startRemoveExercise(exerciseId);
   }
 
   function confirmRemoveExercise(exerciseId: string): void {
+    setPendingExerciseRemovalId(null);
+    startRemoveExercise(exerciseId);
+  }
+
+  /** Collapses the card away first; {@link finishRemoveExercise} drops it. */
+  function startRemoveExercise(exerciseId: string): void {
+    setLeavingExerciseIds((currentValue) =>
+      currentValue.includes(exerciseId)
+        ? currentValue
+        : [...currentValue, exerciseId],
+    );
+  }
+
+  function finishRemoveExercise(exerciseId: string): void {
     setDraftExercises((currentValue) => {
       return currentValue.filter(
         (draftExercise) => draftExercise.id !== exerciseId,
       );
     });
-    setPendingExerciseRemovalId(null);
+    setLeavingExerciseIds((currentValue) =>
+      currentValue.filter((id) => id !== exerciseId),
+    );
   }
 
   function handleAddSet(exerciseId: string): void {
@@ -705,6 +850,12 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
   function handleCopySet(exerciseId: string, setId: string): void {
     setDraftExercises((currentValue) =>
       copyDraftSet(currentValue, exerciseId, setId),
+    );
+  }
+
+  function handleClearSet(exerciseId: string, setId: string): void {
+    setDraftExercises((currentValue) =>
+      clearDraftSetValues(currentValue, exerciseId, setId),
     );
   }
 
@@ -725,13 +876,42 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
     );
   }
 
+  /**
+   * Ticks or un-ticks a set. In a live session a successful tick also
+   * prefills the next set and starts the rest countdown (训记 behavior).
+   */
   function handleToggleSetCompleted(exerciseId: string, setId: string): void {
-    setDraftExercises((currentValue) =>
-      toggleDraftSetCompleted(currentValue, exerciseId, setId),
+    const exercise = draftExercises.find((item) => item.id === exerciseId);
+    const setDraft = exercise?.sets.find((item) => item.id === setId);
+    const willComplete = Boolean(
+      exercise &&
+      setDraft &&
+      !setDraft.completed &&
+      isDraftSetValid(setDraft, exercise),
     );
+
+    setDraftExercises((currentValue) => {
+      const toggled = toggleDraftSetCompleted(currentValue, exerciseId, setId);
+
+      return isActiveSession
+        ? appendNextSetAfterCompletion(currentValue, toggled, exerciseId, setId)
+        : toggled;
+    });
+
+    if (willComplete && isActiveSession) {
+      startRestCountdown(setId, restPresetSeconds);
+    }
   }
 
-  function handleOpenRestTimer(setId: string): void {
+  function getLastCompletedSetId(): string | undefined {
+    const completedSets = draftExercises.flatMap((draftExercise) =>
+      draftExercise.sets.filter((setDraft) => setDraft.completed),
+    );
+
+    return completedSets.at(-1)?.id;
+  }
+
+  function handleOpenRestTimer(setId: string | undefined): void {
     if (
       restTimer &&
       (restTimer.status === "running" ||
@@ -739,14 +919,14 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
         restTimer.status === "selecting") &&
       (restTimer.remainingSeconds > 0 || restTimer.status === "selecting")
     ) {
-      setPendingRestTimerRequest(setId);
+      setPendingRestTimerRequest({ setId });
       return;
     }
 
     openRestTimerSelector(setId);
   }
 
-  function openRestTimerSelector(setId: string): void {
+  function openRestTimerSelector(setId: string | undefined): void {
     setRestTimer({
       isRunning: false,
       remainingSeconds: 0,
@@ -758,37 +938,44 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
 
   function handleConfirmRestTimerDuration(seconds: number): void {
     const safeSeconds = Math.max(1, Math.floor(seconds));
-    const sourceSetId = restTimer?.sourceSetId;
 
-    if (!sourceSetId) {
-      return;
-    }
+    setRestPresetSeconds(safeSeconds);
+    startRestCountdown(restTimer?.sourceSetId, safeSeconds);
+  }
 
-    setDraftExercises((currentValue) => {
-      return currentValue.map((draftExercise) => {
-        return {
-          ...draftExercise,
-          sets: draftExercise.sets.map((setDraft) => {
-            if (setDraft.id !== sourceSetId) {
-              return setDraft;
-            }
+  /** Runs the countdown and records it against the set it follows, if any. */
+  function startRestCountdown(
+    sourceSetId: string | undefined,
+    seconds: number,
+  ): void {
+    if (sourceSetId) {
+      setDraftExercises((currentValue) => {
+        const next = completeDraftSetWithRest(
+          currentValue,
+          sourceSetId,
+          seconds,
+        );
+        const exerciseId = currentValue.find((draftExercise) =>
+          draftExercise.sets.some((setDraft) => setDraft.id === sourceSetId),
+        )?.id;
 
-            return {
-              ...setDraft,
-              completed: true,
-              restSeconds: safeSeconds,
-            };
-          }),
-        };
+        return isActiveSession && exerciseId
+          ? appendNextSetAfterCompletion(
+              currentValue,
+              next,
+              exerciseId,
+              sourceSetId,
+            )
+          : next;
       });
-    });
+    }
 
     setRestTimer({
       isRunning: true,
-      remainingSeconds: safeSeconds,
+      remainingSeconds: seconds,
       sourceSetId,
       status: "running",
-      totalSeconds: safeSeconds,
+      totalSeconds: seconds,
     });
   }
 
@@ -850,7 +1037,7 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
 
     try {
       await executeTrainingSessionSave(props.token, savePlan);
-      resetComposerState();
+      setIsSaved(true);
       await props.onCreated?.();
     } catch (error) {
       setErrorMessage(getReadableErrorMessage(error));
@@ -865,38 +1052,36 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
     );
 
     if (!exercise) {
-      setDuplicateNotice(
-        "\u8bf7\u6253\u5f00\u52a8\u4f5c\u5e93\u91cd\u65b0\u9009\u62e9\u8be5\u52a8\u4f5c\u3002",
-      );
+      setDuplicateNotice("请打开动作库重新选择该动作。");
       return;
     }
 
-    setDraftExercises((currentValue) => {
-      const targetExercise = currentValue.find((draftExercise) =>
-        draftExercise.candidateExercises.some(
-          (candidate) => candidate.exerciseId === exerciseId,
-        ),
+    const targetExercise = draftExercises.find((draftExercise) =>
+      draftExercise.candidateExercises.some(
+        (candidate) => candidate.exerciseId === exerciseId,
+      ),
+    );
+
+    if (!targetExercise) {
+      return;
+    }
+
+    const alreadyExists = draftExercises.some((draftExercise) => {
+      return (
+        draftExercise.id !== targetExercise.id &&
+        draftExercise.matchStatus === "matched" &&
+        draftExercise.exerciseId === exercise.id
       );
+    });
 
-      if (!targetExercise) {
-        return currentValue;
-      }
+    if (alreadyExists) {
+      setDuplicateNotice("这个动作已经在本次训练中。");
+      return;
+    }
 
-      const alreadyExists = currentValue.some((draftExercise) => {
-        return (
-          draftExercise.id !== targetExercise.id &&
-          draftExercise.matchStatus === "matched" &&
-          draftExercise.exerciseId === exercise.id
-        );
-      });
-
-      if (alreadyExists) {
-        setDuplicateNotice("这个动作已经在本次训练中。");
-        return currentValue;
-      }
-
-      setDuplicateNotice(null);
-      return currentValue.map((draftExercise) => {
+    setDuplicateNotice(null);
+    setDraftExercises((currentValue) =>
+      currentValue.map((draftExercise) => {
         if (draftExercise.id !== targetExercise.id) {
           return draftExercise;
         }
@@ -910,8 +1095,8 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
           matchStatus: "matched",
           name: getExerciseDisplayName(exercise),
         };
-      });
-    });
+      }),
+    );
   }
 
   function resetComposerState(): void {
@@ -926,11 +1111,18 @@ export function TrainingSessionComposer(props: TrainingSessionComposerProps) {
     setDraftStartedAt(null);
     setElapsedSeconds(0);
     setErrorMessage(null);
+    setHistoryExercise(null);
     setIsLibraryOpen(false);
+    setIsMinimized(false);
+    setIsNotesOpen(false);
+    setIsSaved(false);
     setIsRunning(false);
     setIsTimeEditorOpen(false);
+    setLeavingExerciseIds([]);
+    setMoreMenuAnchor(null);
     setPendingExerciseRemovalId(null);
     setPendingRestTimerRequest(null);
+    setPendingScrollExerciseId(null);
     setReplacingDraftExerciseId(null);
     setRestTimer(null);
   }
@@ -944,6 +1136,7 @@ function TrainingTimeEditor(props: {
     endedAt: string | null;
     startedAt: string | null;
   }) => void;
+  open: boolean;
   performedAt: string | null;
   startedAt: string | null;
 }) {
@@ -955,7 +1148,20 @@ function TrainingTimeEditor(props: {
     formatDateTimeLocalValue(props.endedAt),
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [wasOpen, setWasOpen] = useState(props.open);
   const durationMin = getDurationMinutesFromLocalValues(startValue, endValue);
+
+  // Each visit starts from the draft's current times.
+  if (props.open !== wasOpen) {
+    setWasOpen(props.open);
+    if (props.open) {
+      setStartValue(
+        formatDateTimeLocalValue(props.startedAt ?? props.performedAt),
+      );
+      setEndValue(formatDateTimeLocalValue(props.endedAt));
+      setErrorMessage(null);
+    }
+  }
 
   return (
     <ActionSheet
@@ -968,19 +1174,19 @@ function TrainingTimeEditor(props: {
       footer={
         <div style={confirmActionRowStyle}>
           <Button onClick={props.onClose} type="button" variant="secondary">
-            {"\u53d6\u6d88"}
+            取消
           </Button>
           <Button onClick={handleSave} type="button">
-            {"\u4fdd\u5b58\u65f6\u95f4"}
+            保存时间
           </Button>
         </div>
       }
       onClose={props.onClose}
-      open
+      open={props.open}
       title="训练时间"
     >
       <label style={timeEditorLabelStyle(theme)}>
-        {"\u5f00\u59cb\u65f6\u95f4"}
+        开始时间
         <input
           onChange={(event) => {
             setStartValue(event.target.value);
@@ -993,7 +1199,7 @@ function TrainingTimeEditor(props: {
       </label>
 
       <label style={timeEditorLabelStyle(theme)}>
-        {"\u7ed3\u675f\u65f6\u95f4"}
+        结束时间
         <input
           onChange={(event) => {
             setEndValue(event.target.value);
@@ -1007,8 +1213,8 @@ function TrainingTimeEditor(props: {
 
       <p style={timeEditorSummaryStyle(theme)}>
         {durationMin === null
-          ? "\u8bad\u7ec3\u65f6\u957f\uff1a\u672a\u8bbe\u7f6e"
-          : `\u8bad\u7ec3\u65f6\u957f\uff1a${durationMin} \u5206\u949f`}
+          ? "训练时长：未设置"
+          : `训练时长：${durationMin} 分钟`}
       </p>
 
       {errorMessage ? (
@@ -1028,9 +1234,7 @@ function TrainingTimeEditor(props: {
     }
 
     if (!startValue || !endValue) {
-      setErrorMessage(
-        "\u8bf7\u540c\u65f6\u586b\u5199\u5f00\u59cb\u548c\u7ed3\u675f\u65f6\u95f4\u3002",
-      );
+      setErrorMessage("请同时填写开始和结束时间。");
       return;
     }
 
@@ -1038,9 +1242,7 @@ function TrainingTimeEditor(props: {
     const endedAt = parseDateTimeLocalValue(endValue);
 
     if (!startedAt || !endedAt) {
-      setErrorMessage(
-        "\u8bf7\u586b\u5199\u6709\u6548\u7684\u8bad\u7ec3\u65f6\u95f4\u3002",
-      );
+      setErrorMessage("请填写有效的训练时间。");
       return;
     }
 
@@ -1048,9 +1250,7 @@ function TrainingTimeEditor(props: {
     const endedAtMs = new Date(endedAt).getTime();
 
     if (startedAtMs >= endedAtMs) {
-      setErrorMessage(
-        "\u7ed3\u675f\u65f6\u95f4\u5fc5\u987b\u665a\u4e8e\u5f00\u59cb\u65f6\u95f4\u3002",
-      );
+      setErrorMessage("结束时间必须晚于开始时间。");
       return;
     }
 
@@ -1086,108 +1286,53 @@ function translateErrorMessage(message: string): string {
   return message;
 }
 
-const composerStyle: React.CSSProperties = {
-  height: "100dvh",
-  inset: 0,
-  left: "50%",
-  maxWidth: 390,
-  position: "fixed",
-  transform: "translateX(-50%)",
-  width: "100%",
-  zIndex: 400,
+const bodyStyle: React.CSSProperties = {
+  minHeight: "100%",
+  padding: "14px 12px 24px",
 };
 
-function backdropStyle(
+function notePreviewStyle(
   theme: ReturnType<typeof useTheme>["theme"],
 ): React.CSSProperties {
   return {
-    background: theme.isDark ? "rgba(0, 0, 0, 0.6)" : "rgba(0, 0, 0, 0.28)",
-    inset: 0,
-    position: "absolute",
-  };
-}
-
-function panelStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    background: theme.colors.bg,
-    color: theme.colors.tx,
-    display: "flex",
-    flexDirection: "column",
-    height: "100%",
-    inset: 0,
-    overflow: "hidden",
-    padding:
-      "max(16px, env(safe-area-inset-top, 16px)) 16px calc(24px + env(safe-area-inset-bottom, 0px))",
-    position: "relative",
-  };
-}
-
-function headerStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    borderBottom: `1px solid ${theme.colors.bdr}`,
-    display: "grid",
-    gap: 16,
-    paddingBottom: 16,
-  };
-}
-
-const headerTopRowStyle: React.CSSProperties = {
-  alignItems: "center",
-  display: "flex",
-  gap: 12,
-  justifyContent: "space-between",
-};
-
-const headerBodyStyle: React.CSSProperties = {
-  alignItems: "end",
-  display: "grid",
-  gap: 16,
-  gridTemplateColumns: "minmax(0, 1fr) auto",
-};
-
-function intakeTimeButtonStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    background: "transparent",
-    border: "none",
+    background: theme.colors.surf,
+    border: `1px solid ${theme.colors.bdr}`,
+    borderRadius: theme.radius.card,
     color: theme.colors.tx,
     cursor: "pointer",
     display: "grid",
     gap: 6,
-    padding: 0,
+    padding: "14px 16px",
     textAlign: "left",
+    width: "100%",
   };
 }
 
-function noteEditorStyle(
+function notePreviewHeadStyle(
   theme: ReturnType<typeof useTheme>["theme"],
 ): React.CSSProperties {
   return {
+    alignItems: "center",
     color: theme.colors.tx2,
-    display: "grid",
+    display: "flex",
     fontSize: 12,
     fontWeight: 700,
-    gap: 8,
+    gap: 6,
   };
 }
 
-function noteTextareaStyle(
+function notePreviewTextStyle(
   theme: ReturnType<typeof useTheme>["theme"],
 ): React.CSSProperties {
   return {
-    backgroundColor: theme.colors.surf2,
-    border: `1px solid ${theme.colors.bdr}`,
-    borderRadius: theme.radius.control,
     color: theme.colors.tx,
-    font: "inherit",
-    minHeight: 76,
-    padding: "10px 12px",
-    resize: "vertical",
+    display: "-webkit-box",
+    fontSize: 14,
+    lineHeight: 1.6,
+    overflow: "hidden",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 3,
+    whiteSpace: "pre-wrap",
   };
 }
 
@@ -1237,223 +1382,12 @@ function timeEditorErrorStyle(
   };
 }
 
-function bodyStyle(hasRestTimer: boolean): React.CSSProperties {
-  return {
-    alignContent: "start",
-    display: "grid",
-    flex: 1,
-    gap: 16,
-    minHeight: 0,
-    overflowY: "auto",
-    overscrollBehavior: "contain",
-    paddingBottom: hasRestTimer
-      ? "calc(176px + env(safe-area-inset-bottom, 0px))"
-      : "calc(120px + env(safe-area-inset-bottom, 0px))",
-    touchAction: "pan-y",
-    WebkitOverflowScrolling: "touch",
-  };
-}
-
-const exerciseListStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 12,
-  paddingBottom: 8,
-};
-
-const statusWrapStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 10,
-  justifyItems: "end",
-};
-
-function statusPillStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    alignItems: "center",
-    backgroundColor: theme.colors.surf2,
-    border: `1px solid ${theme.colors.bdr}`,
-    borderRadius: theme.radius.pill,
-    color: theme.colors.tx2,
-    display: "inline-flex",
-    fontSize: 12,
-    fontWeight: 700,
-    gap: 8,
-    padding: "8px 12px",
-  };
-}
-
-function statusCopyStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    color: theme.colors.tx3,
-    fontSize: 12,
-    lineHeight: 1.6,
-    margin: 0,
-    maxWidth: 180,
-    textAlign: "right",
-  };
-}
-
-const fabWrapStyle: React.CSSProperties = {
-  bottom: "calc(24px + env(safe-area-inset-bottom, 0px))",
-  position: "absolute",
-  right: 16,
-  zIndex: 210,
-};
-
-const FAB_KEYFRAMES = `
-  @keyframes fitmindFabPulse {
-    0% { transform: scale(1); opacity: 0.5; }
-    70% { opacity: 0; }
-    100% { transform: scale(1.7); opacity: 0; }
-  }
-`;
-
-const FAB_SATELLITE_OFFSET_PX = 72;
-
-const fabDialBackdropStyle: React.CSSProperties = {
-  background: "transparent",
-  border: "none",
-  cursor: "default",
-  inset: 0,
-  padding: 0,
-  position: "absolute",
-  zIndex: 205,
-};
-
-function fabStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-  isOpen = false,
-): React.CSSProperties {
-  return {
-    alignItems: "center",
-    backgroundColor: theme.colors.ac,
-    border: "none",
-    borderRadius: 999,
-    boxShadow: theme.shadows.card,
-    color: theme.colors.acText,
-    cursor: "pointer",
-    display: "inline-flex",
-    height: 56,
-    justifyContent: "center",
-    position: "relative",
-    touchAction: "none",
-    transform: isOpen ? "scale(1.02)" : "scale(1)",
-    transition: "transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1)",
-    width: 56,
-    zIndex: 2,
-  };
-}
-
-function fabPlusIconStyle(isOpen: boolean): React.CSSProperties {
-  return {
-    alignItems: "center",
-    display: "inline-flex",
-    justifyContent: "center",
-    transform: isOpen ? "rotate(135deg)" : "rotate(0deg)",
-    transition: "transform 240ms cubic-bezier(0.34, 1.56, 0.64, 1)",
-  };
-}
-
-function fabSatelliteStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-  kind: FabAction,
-  isOpen: boolean,
-  isActive: boolean,
-): React.CSSProperties {
-  const openTransform =
-    kind === "voice"
-      ? `translateY(-${FAB_SATELLITE_OFFSET_PX}px) scale(1)`
-      : `translateX(-${FAB_SATELLITE_OFFSET_PX}px) scale(1)`;
-
-  return {
-    alignItems: "center",
-    backgroundColor: isActive ? theme.colors.ac : theme.colors.surf,
-    border: `1px solid ${isActive ? theme.colors.ac : theme.colors.bdr2}`,
-    borderRadius: 999,
-    bottom: 4,
-    boxShadow: theme.shadows.card,
-    color: isActive ? theme.colors.acText : theme.colors.tx,
-    cursor: "pointer",
-    display: "inline-flex",
-    height: 48,
-    justifyContent: "center",
-    opacity: isOpen ? 1 : 0,
-    pointerEvents: isOpen ? "auto" : "none",
-    position: "absolute",
-    right: 4,
-    transform: isOpen ? openTransform : "translate(0, 0) scale(0.3)",
-    transition:
-      "transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 200ms ease, background-color 120ms ease",
-    transitionDelay: isOpen && kind === "voice" ? "40ms" : "0ms",
-    width: 48,
-    zIndex: 1,
-  };
-}
-
-function fabPulseStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    animation: "fitmindFabPulse 1900ms ease-out infinite",
-    border: `2px solid ${theme.colors.ac}`,
-    borderRadius: 999,
-    bottom: 0,
-    height: 56,
-    pointerEvents: "none",
-    position: "absolute",
-    right: 0,
-    width: 56,
-    zIndex: 1,
-  };
-}
-
-function confirmBackdropStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    alignItems: "end",
-    backgroundColor: theme.isDark ? "rgba(0,0,0,0.42)" : "rgba(0,0,0,0.24)",
-    display: "flex",
-    inset: 0,
-    padding: "16px 16px calc(24px + env(safe-area-inset-bottom, 0px))",
-    position: "absolute",
-    zIndex: 230,
-  };
-}
-
-function confirmCardStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    backgroundColor: theme.colors.surf,
-    border: `1px solid ${theme.colors.bdr2}`,
-    borderRadius: theme.radius.card,
-    boxShadow: theme.shadows.card,
-    display: "grid",
-    gap: 12,
-    padding: 16,
-    width: "100%",
-  };
-}
-
-function confirmTitleStyle(
-  theme: ReturnType<typeof useTheme>["theme"],
-): React.CSSProperties {
-  return {
-    color: theme.colors.tx,
-    fontSize: 15,
-  };
-}
-
 function confirmCopyStyle(
   theme: ReturnType<typeof useTheme>["theme"],
 ): React.CSSProperties {
   return {
     color: theme.colors.tx2,
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 1.6,
     margin: 0,
   };
