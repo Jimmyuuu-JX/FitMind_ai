@@ -24,6 +24,12 @@ export interface DraftSet {
   isWarmup: boolean;
   persistedSetId?: string | null | undefined;
   reps: string;
+  /**
+   * Exact RPE as stored (e.g. 7.5, or null when never rated). The effort chip
+   * only has three buckets, so this is what gets saved back unless the user
+   * moves the set to a different bucket — see {@link resolveDraftSetRpe}.
+   */
+  rpe?: number | null | undefined;
   restSeconds: number | null;
   weightKg: string;
 }
@@ -81,6 +87,7 @@ export function createDraftSet(previousSet?: DraftSet): DraftSet {
     isWarmup: previousSet?.isWarmup ?? false,
     reps: previousSet?.reps ?? "",
     restSeconds: previousSet?.restSeconds ?? null,
+    rpe: previousSet?.rpe,
     weightKg: previousSet?.weightKg ?? "",
   };
 }
@@ -142,6 +149,40 @@ export function isDraftSetValid(
   );
 }
 
+/** The effort bucket an RPE falls in: ≤6 简单, ≥9 困难, otherwise 正常. */
+export function mapRpeToEffort(rpe: number | null): EffortLevel {
+  if (rpe !== null && rpe >= 9) {
+    return "hard";
+  }
+
+  if (rpe !== null && rpe <= 6) {
+    return "easy";
+  }
+
+  return "normal";
+}
+
+/**
+ * RPE to persist for a draft set.
+ *
+ * Keeps the exact stored value (including "not rated") while the set is still
+ * in the bucket that value maps to; only a set the user moved to another
+ * bucket takes that bucket's representative RPE.
+ *
+ * @param setDraft - Draft set
+ * @returns RPE to save, or null for an unrated set left untouched
+ */
+export function resolveDraftSetRpe(setDraft: DraftSet): number | null {
+  if (
+    setDraft.rpe !== undefined &&
+    mapRpeToEffort(setDraft.rpe) === setDraft.effort
+  ) {
+    return setDraft.rpe;
+  }
+
+  return mapEffortToRpe(setDraft.effort);
+}
+
 export function mapEffortToRpe(effort: EffortLevel): number {
   if (effort === "easy") {
     return 6;
@@ -179,7 +220,7 @@ export function buildWorkoutRequestFromDraft(input: {
         exercise_id: draftExercise.exerciseId,
         is_warmup: setDraft.isWarmup,
         reps: Number.parseInt(setDraft.reps, 10),
-        rpe: mapEffortToRpe(setDraft.effort),
+        rpe: resolveDraftSetRpe(setDraft) ?? undefined,
         weight_kg: getDraftSetWeightKg(setDraft, draftExercise),
       });
     });

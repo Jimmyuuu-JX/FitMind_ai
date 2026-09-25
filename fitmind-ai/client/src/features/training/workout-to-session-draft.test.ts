@@ -160,6 +160,7 @@ describe("buildWorkoutEditPlan", () => {
     expect(plan.setPatches).toEqual([
       {
         input: {
+          is_warmup: false,
           reps: 8,
           rpe: 8,
           set_index: 1,
@@ -179,5 +180,144 @@ describe("buildWorkoutEditPlan", () => {
       },
     ]);
     expect(plan.setDeletes).toEqual(["44444444-4444-4444-8444-444444444444"]);
+  });
+});
+
+describe("buildWorkoutEditPlan keeps what the user did not touch", () => {
+  const warmupSetId = "44444444-4444-4444-8444-444444444444";
+  const unratedSetId = "55555555-5555-4555-8555-555555555555";
+
+  function detailedWorkout(): WorkoutDetailDto {
+    return createWorkout({
+      sets: [
+        {
+          created_at: "2026-05-31T08:31:00.000Z",
+          exercise_id: benchId,
+          id: warmupSetId,
+          is_warmup: true,
+          notes: null,
+          reps: 10,
+          rpe: 7.5,
+          set_index: 1,
+          weight_kg: 40,
+        },
+        {
+          created_at: "2026-05-31T08:35:00.000Z",
+          exercise_id: benchId,
+          id: setId,
+          is_warmup: false,
+          notes: null,
+          reps: 8,
+          rpe: 8.5,
+          set_index: 2,
+          weight_kg: 80,
+        },
+        {
+          created_at: "2026-05-31T08:40:00.000Z",
+          exercise_id: benchId,
+          id: unratedSetId,
+          is_warmup: false,
+          notes: null,
+          reps: 6,
+          rpe: null,
+          set_index: 3,
+          weight_kg: 82.5,
+        },
+      ],
+    });
+  }
+
+  it("writes nothing when an edit is saved without changes", () => {
+    const workout = detailedWorkout();
+    const draft = mapWorkoutToSessionInitialDraft(workout, [createExercise()]);
+
+    expect(buildWorkoutEditPlan(workout, draft)).toEqual({
+      setAdds: [],
+      setDeletes: [],
+      setPatches: [],
+      workoutPatch: null,
+    });
+  });
+
+  it("rewrites RPE only on the set whose effort the user changed", () => {
+    const workout = detailedWorkout();
+    const draft = mapWorkoutToSessionInitialDraft(workout, [createExercise()]);
+    const sets = draft.exercises[0]?.sets ?? [];
+    const changed = sets[1];
+
+    if (!changed) {
+      throw new Error("fixture set missing");
+    }
+
+    changed.effort = "hard";
+
+    expect(buildWorkoutEditPlan(workout, draft).setPatches).toEqual([
+      {
+        input: {
+          is_warmup: false,
+          reps: 8,
+          rpe: 9,
+          set_index: 2,
+          weight_kg: 80,
+        },
+        setId,
+      },
+    ]);
+  });
+
+  it("persists a warm-up toggle on an existing set", () => {
+    const workout = detailedWorkout();
+    const draft = mapWorkoutToSessionInitialDraft(workout, [createExercise()]);
+    const warmup = draft.exercises[0]?.sets[0];
+
+    if (!warmup) {
+      throw new Error("fixture set missing");
+    }
+
+    warmup.isWarmup = false;
+
+    expect(buildWorkoutEditPlan(workout, draft).setPatches).toEqual([
+      {
+        input: {
+          is_warmup: false,
+          reps: 10,
+          rpe: 7.5,
+          set_index: 1,
+          weight_kg: 40,
+        },
+        setId: warmupSetId,
+      },
+    ]);
+  });
+
+  it("keeps the warm-up flag on sets added during an edit", () => {
+    const workout = detailedWorkout();
+    const draft = mapWorkoutToSessionInitialDraft(workout, [createExercise()]);
+    const exercise = draft.exercises[0];
+
+    if (!exercise) {
+      throw new Error("fixture exercise missing");
+    }
+
+    exercise.sets.push({
+      completed: true,
+      effort: "normal",
+      id: "new-warmup",
+      isWarmup: true,
+      reps: "12",
+      restSeconds: null,
+      weightKg: "20",
+    });
+
+    expect(buildWorkoutEditPlan(workout, draft).setAdds).toEqual([
+      {
+        exercise_id: benchId,
+        is_warmup: true,
+        reps: 12,
+        rpe: 8,
+        set_index: 4,
+        weight_kg: 20,
+      },
+    ]);
   });
 });

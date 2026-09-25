@@ -12,9 +12,9 @@ import {
 import {
   getExerciseLoadType,
   isDraftSetValid,
-  mapEffortToRpe,
+  mapRpeToEffort,
+  resolveDraftSetRpe,
   type DraftSet,
-  type EffortLevel,
   type TrainingSessionInitialDraft,
 } from "./training-session-draft";
 
@@ -122,8 +122,11 @@ export function buildWorkoutEditPlan(
       if (!originalSet || isSetPayloadChanged(originalSet, setPayload)) {
         setPatches.push({
           input: {
+            is_warmup: setPayload.is_warmup,
             reps: setPayload.reps,
-            rpe: setPayload.rpe,
+            // The update contract cannot clear an RPE, so an unrated set
+            // simply leaves the field out.
+            ...(setPayload.rpe !== undefined ? { rpe: setPayload.rpe } : {}),
             set_index: setPayload.set_index,
             weight_kg: setPayload.weight_kg,
           },
@@ -156,6 +159,7 @@ function mapWorkoutSetToDraftSet(
     persistedSetId: set.id,
     reps: `${set.reps}`,
     restSeconds: null,
+    rpe: set.rpe,
     weightKg: `${set.weight_kg}`,
   };
 }
@@ -202,9 +206,9 @@ function buildSetPayload(
 ): AddWorkoutSetRequest {
   return {
     exercise_id: exerciseId,
-    is_warmup: false,
+    is_warmup: setDraft.isWarmup,
     reps: Number.parseInt(setDraft.reps, 10),
-    rpe: mapEffortToRpe(setDraft.effort),
+    rpe: resolveDraftSetRpe(setDraft) ?? undefined,
     set_index: setIndex,
     weight_kg: Number.parseFloat(setDraft.weightKg || "0"),
   };
@@ -218,18 +222,7 @@ function isSetPayloadChanged(
     originalSet.reps !== nextPayload.reps ||
     originalSet.weight_kg !== nextPayload.weight_kg ||
     originalSet.set_index !== nextPayload.set_index ||
+    originalSet.is_warmup !== nextPayload.is_warmup ||
     (originalSet.rpe ?? null) !== (nextPayload.rpe ?? null)
   );
-}
-
-function mapRpeToEffort(rpe: number | null): EffortLevel {
-  if (rpe !== null && rpe >= 9) {
-    return "hard";
-  }
-
-  if (rpe !== null && rpe <= 6) {
-    return "easy";
-  }
-
-  return "normal";
 }

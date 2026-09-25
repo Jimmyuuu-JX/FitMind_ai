@@ -5,9 +5,9 @@ import {
 } from "./exercise-display";
 import {
   getExerciseLoadType,
+  mapRpeToEffort,
   type DraftExercise,
   type DraftSet,
-  type EffortLevel,
   type TrainingSessionInitialDraft,
 } from "./training-session-draft";
 import type {
@@ -166,6 +166,8 @@ function mapCompleteSet(
     isWarmup: false,
     reps: `${set.reps}`,
     restSeconds: null,
+    // What the user actually said, so 7.5 stays 7.5 and "no RPE" stays empty.
+    rpe: set.rpe,
     weightKg: `${set.weight_kg}`,
   };
 }
@@ -185,16 +187,4 @@ function mapIncompleteSet(
     restSeconds: null,
     weightKg: set.weight_kg === null ? "" : `${set.weight_kg}`,
   }));
-}
-
-function mapRpeToEffort(rpe: number | null): EffortLevel {
-  if (rpe !== null && rpe >= 9) {
-    return "hard";
-  }
-
-  if (rpe !== null && rpe <= 6) {
-    return "easy";
-  }
-
-  return "normal";
 }

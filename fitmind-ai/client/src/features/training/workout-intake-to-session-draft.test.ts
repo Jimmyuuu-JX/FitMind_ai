@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { DictionaryExercise } from "./dictionary-api";
-import type { DraftExercise } from "./training-session-draft";
+import {
+  buildWorkoutRequestFromDraft,
+  type DraftExercise,
+} from "./training-session-draft";
 import type { WorkoutIntakeDraft } from "./workout-intake-api";
 import {
   appendIntakeExercisesToDraft,
@@ -345,5 +348,37 @@ describe("appendIntakeExercisesToDraft", () => {
     ]);
 
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("intake RPE reaches the saved workout unchanged", () => {
+  it("keeps a parsed 7.5 and does not invent an RPE the user never gave", () => {
+    const initial = mapWorkoutIntakeDraftToSessionInitialDraft(
+      createDraft({
+        exercises: [
+          {
+            candidate_exercises: [],
+            incomplete_sets: [],
+            input_name: "杠铃卧推",
+            match_confidence: 1,
+            match_status: "matched",
+            matched_exercise_id: benchExerciseId,
+            matched_exercise_name: "杠铃卧推",
+            sets: [
+              { intensity_label: null, reps: 8, rpe: 7.5, weight_kg: 80 },
+              { intensity_label: null, reps: 8, rpe: null, weight_kg: 80 },
+            ],
+          },
+        ],
+      }),
+      [createExercise()],
+    );
+    const request = buildWorkoutRequestFromDraft({
+      draftExercises: initial.exercises,
+      elapsedSeconds: 0,
+      performedAt: new Date(initial.performedAt),
+    });
+
+    expect(request?.sets.map((set) => set.rpe)).toEqual([7.5, undefined]);
   });
 });

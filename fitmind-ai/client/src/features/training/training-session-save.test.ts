@@ -250,7 +250,13 @@ describe("prepareTrainingSessionSave", () => {
         setDeletes: [removedSetId],
         setPatches: [
           {
-            input: { reps: 9, rpe: 8, set_index: 1, weight_kg: 60 },
+            input: {
+              is_warmup: false,
+              reps: 9,
+              rpe: 8,
+              set_index: 1,
+              weight_kg: 60,
+            },
             setId: persistedSetId,
           },
         ],
