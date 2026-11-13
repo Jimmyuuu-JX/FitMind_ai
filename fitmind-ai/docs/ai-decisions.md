@@ -1079,7 +1079,7 @@ Decision:
 - Tier 1 is intentionally light: Cloudflare Cron Trigger calls the Vercel API, the server generates weekly digest snapshots for active users, and the client shows a compact in-app digest when the user next opens Assistant.
 - No Web Push, VAPID keys, PushManager subscription table, service-worker push handler, notification permission UX, or iOS PWA notification support is implemented in Tier 1.
 - No per-user preference table/API/UI in Tier 1. Delivery is guarded by the global `WEEKLY_REPORT_DELIVERY_ENABLED` flag, default off, plus a recent-workout active-user filter. Per-user opt-in moves to Tier 2 with true notification settings.
-- Cron host is the existing Cloudflare worker `scheduled()` handler. It reuses `VERCEL_API_ORIGIN` and calls `${VERCEL_API_ORIGIN}/api/cron/weekly-reports` directly with `Authorization: Bearer $WEEKLY_REPORT_CRON_SECRET`.
+- Cron host was originally the Cloudflare worker `scheduled()` handler calling `/api/cron/weekly-reports` with `Authorization: Bearer $WEEKLY_REPORT_CRON_SECRET`. **Superseded 2026-11-13:** the Cloudflare deployment target was removed (Vercel and Tencent Cloud remain), so no scheduler is configured; the endpoint and its bearer contract are unchanged, and a scheduler must be chosen per deployment before the delivery flag is turned on.
 - The Vercel endpoint is public at the edge, so bearer validation is the security boundary. Missing, wrong, or unconfigured secrets return 401 and never echo the secret.
 - Digests are idempotent by `(user_id, iso_year, iso_week)`. Re-running cron refreshes the snapshot and summary but preserves `dismissed_at`, so dismissed digests do not reappear.
 - Digest title and summary are deterministic and derived only from the weekly report payload. They do not call an LLM and do not introduce numbers outside the report/range facts.
@@ -1142,7 +1142,7 @@ Decision:
 - Tests inject limiter state and clock. App characterization tests use an injected wide limiter so module-level default limiter state cannot accumulate across test cases.
 
 Known boundaries:
-- Cloudflare Worker -> Vercel proxy paths can collapse users that traverse the Worker into the Worker egress IP bucket. That is acceptable at the current scale, but it is a documented risk.
+- Any reverse proxy placed in front of the API can collapse its users into the proxy egress IP bucket. The Cloudflare Worker proxy this note was written for was removed on 2026-11-13.
 - The limiter is in-memory and per serverless instance, so it is partial protection in distributed/serverless deployments. A distributed DB/Redis-backed limiter is a roadmap follow-up.
 
 Review note:
