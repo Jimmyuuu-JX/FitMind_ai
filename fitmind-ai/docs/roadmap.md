@@ -1,7 +1,7 @@
 # FitMind AI 路线图（roadmap.md）
 
 > 前瞻文档：记录"接下来要做什么"。与 `docs/progress.md`（回顾，逐批次记录已做的事）配成一对。
-> 阶段编号沿用 `PROJECT_BRIEF.md §7` 与 `docs/progress.md` 的 Phase 体系。
+> 阶段编号沿用 [`archive/PROJECT_BRIEF-2026-04.md`](./archive/PROJECT_BRIEF-2026-04.md) §7 与 `docs/progress.md` 的 Phase 体系。
 >
 > Last updated: 2026-08-10
 
@@ -11,7 +11,7 @@
 
 主线 100% + RAG 扩展 100% + 一层产品化已上线：<https://fitmind-ai-psi.vercel.app/>
 
-已完成（对照 `PROJECT_BRIEF.md §7`）：
+已完成（对照 `archive/PROJECT_BRIEF-2026-04.md §7`）：
 
 - 阶段 0–5 主线：训练日志 CRUD、确定性计算层（summary / exercise-progress / muscle-load / recommendation-context）、Tool Calling 循环、SSE + 前端四态状态机、结构化输出 + Evidence/Sources 卡片。
 - 扩展 A（RAG）：DB 知识 chunk + Voyage `voyage-4-lite` + pgvector + 混合打分 + 确定性 eval。
@@ -71,7 +71,7 @@
 
 把"已上线但欠债"的部分补扎实。建议按批次推进（遵守 AGENTS.md「单次改动 ≤ 5 文件」）：
 
-- **Batch 1 — 鉴权持久化　✅ 已完成（2026-06-11）**：内存 token → HttpOnly + SameSite=Lax cookie 会话，刷新不掉线，兑现 `PROJECT_BRIEF §10.2`。中间件优先 cookie、回退 Bearer（smoke 脚本仍可跑），新增 `POST /api/auth/logout`，前端 `credentials:"include"` + 加载时 `/me` 恢复会话。决策见 `ai-decisions.md` D19。
+- **Batch 1 — 鉴权持久化　✅ 已完成（2026-06-11）**：内存 token → HttpOnly + SameSite=Lax cookie 会话，刷新不掉线，兑现 `archive/PROJECT_BRIEF-2026-04.md §10.2`。中间件优先 cookie、回退 Bearer（smoke 脚本仍可跑），新增 `POST /api/auth/logout`，前端 `credentials:"include"` + 加载时 `/me` 恢复会话。决策见 `ai-decisions.md` D19。
 - **Batch 2 — 浏览器 E2E　✅ 已完成（2026-06-11）**：引入 Playwright（mock 后端，无需 DB/密钥），固化鉴权会话流程（cookie 恢复 / 刷新保持 / 登录 / 登出 / 无会话）为自动化用例，浏览器验证了 Batch 1。`pnpm test:e2e`。训练·分析·助手的全流程 E2E 留作后续。
 - **Batch 3 — 性能实测　🟢 主观达标收尾（精确数字待回填）**：测试流程已写入 `production-smoke-checklist.md`（Lighthouse 移动端 / 安卓远程调试 / 纯手机粗测三法 + 结果表）。真机主观体验在 `§11` 目标范围内；精确数字留待有空用 Lighthouse / 远程调试回填结果表，再同步 README 与面试稿。
 
