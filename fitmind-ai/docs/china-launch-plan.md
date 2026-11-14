@@ -44,9 +44,7 @@
 
 ### 1.3 部署出口还钉在 Vercel
 
-`cloudflare-worker/index.js` 和 `functions/api/[[path]].js` 顶部都硬编码 `DEFAULT_API_ORIGIN = "https://fitmind-ai-psi.vercel.app"`。
-
-自建部署下这两个文件根本不参与请求链路（nginx 直接反代到本机 Node），所以**不必改代码，但必须确认它们没被打包进新链路**。需要改的是 `README.md` 里那批指向 vercel 的生产 URL 和 PWA 安装指引。
+自建部署下请求链路是 nginx 直接反代到本机 Node，不经过任何指向 Vercel 的转发层。需要改的是 `README.md` 里那批指向 vercel 的生产 URL 和 PWA 安装指引。
 
 ### 1.4 nginx 必须关 SSE 缓冲
 
@@ -75,7 +73,7 @@ proxy_cache off;
 
 | 位置 | 现状 | 影响 | 处置 |
 | --- | --- | --- | --- |
-| `server/src/services/training/weekly-report-digest-service.ts` | 全程按 UTC 算「上周」边界；`wrangler.toml` cron `0 9 * * MON` = 北京时间周一 17:00 | 周日晚上的训练会落到错误的那一周 | **保持 `WEEKLY_REPORT_DELIVERY_ENABLED=off`**，别在修之前打开 |
+| `server/src/services/training/weekly-report-digest-service.ts` | 全程按 UTC 算「上周」边界；仓库内没有配置定时触发方 | 周日晚上的训练会落到错误的那一周 | **保持 `WEEKLY_REPORT_DELIVERY_ENABLED=off`**，别在修之前打开 |
 | `server/src/services/assistant/assistant-budget-policy.ts` | 配额按 UTC 日切 | 北京时间早 8 点重置，体感怪 | 不修，无害 |
 
 ---

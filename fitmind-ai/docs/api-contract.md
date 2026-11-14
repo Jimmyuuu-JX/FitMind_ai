@@ -1043,7 +1043,7 @@ Tier 1 weekly report delivery generates deterministic weekly report snapshots on
 
 ### POST /api/cron/weekly-reports
 
-Runs the weekly digest generator. Intended only for the Cloudflare scheduled worker.
+Runs the weekly digest generator. Intended only for a trusted scheduler holding the cron secret. The repository ships no scheduler; one must be configured on the deployment before enabling `WEEKLY_REPORT_DELIVERY_ENABLED`.
 
 Authentication:
 
