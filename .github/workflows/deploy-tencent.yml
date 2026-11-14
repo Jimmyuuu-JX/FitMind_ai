@@ -16,7 +16,7 @@ concurrency:
 jobs:
   verify:
     name: Verify production release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
       release_sha: ${{ steps.release.outputs.sha }}
@@ -93,7 +93,7 @@ jobs:
     name: Approve and deploy verified release
     needs: verify
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       deployments: write
