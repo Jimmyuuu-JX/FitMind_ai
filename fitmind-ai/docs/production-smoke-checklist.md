@@ -176,7 +176,7 @@ Use this checklist before sending the app to an interviewer, friend, or recruite
 
 ## Phase 5.3 Batch 3 — 真机性能测试流程
 
-目标：实测并回填 `PROJECT_BRIEF.md §11` 的指标。下面三种方法按"准确度 / 便利度"排序，按需选用。
+目标：实测并回填 `PROJECT_BRIEF.md §10` 的指标。下面三种方法按"准确度 / 便利度"排序，按需选用。
 
 ### 方法 A — Lighthouse 移动端（首屏类指标，最可复现，建议写进 README 的就是这个）
 
