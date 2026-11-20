@@ -1,5 +1,7 @@
 # FitMind AI 项目学习指南
 
+> **存档。** 这是项目作为求职作品时期写的讲解与演示材料，不再维护，内容可能与现状不符。了解当前项目请从 [`../PROJECT_BRIEF.md`](../PROJECT_BRIEF.md) 和 [`../INDEX.md`](../INDEX.md) 开始。
+
 ## 1. 一句话定位
 
 FitMind AI 是一个以证据为基础的 AI 训练分析系统，将真实训练日志、确定性计算工具、Tool Calling、SSE 流式传输和移动优先的 React 助手 UI 串联为一条完整链路。

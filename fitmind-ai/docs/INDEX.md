@@ -1,6 +1,6 @@
 # 文档索引（INDEX.md）
 
-> 按**"我想干什么"**组织，不按文件名罗列。先在这里定位，再只读需要的那一份 —— 全部文档合计约 1.4 万行，不要通读。
+> 按**"我想干什么"**组织，不按文件名罗列。先在这里定位，再只读需要的那一份，不要通读。
 
 ## 我要动代码
 
@@ -21,8 +21,6 @@
 | --- | --- |
 | 30 秒知道这是什么 | [`PROJECT_BRIEF.md`](./PROJECT_BRIEF.md) |
 | 系统怎么搭的 | [`architecture.md`](./architecture.md) |
-| 演示给别人看 | [`demo-script.md`](./demo-script.md) |
-| 系统性学习整个项目 | [`project-study-guide.md`](./project-study-guide.md) |
 | 查看本轮 UI 参考、对比和交互验收 | [`design-qa.md`](../design-qa.md) |
 
 ## 我要知道下一步做什么
@@ -33,13 +31,16 @@
 | 已经做了什么（当前季度） | [`progress.md`](./progress.md) |
 | 更早的批次记录 | [`archive/`](./archive/) 下的 `progress-<年>-Q<季>.md` |
 
-**进行中的弧线**（每份都是可执行规格，含批次拆分与审查清单）：
+**进行中的计划**（每份都是可执行规格，含批次拆分与审查清单）：
 
-- [`er-arc-plan.md`](./er-arc-plan.md) — 助手实体解析（动作/日期/拒答文案）。ER-1 已封板，ER-1C 起待做
-- [`assistant-usability-plan.md`](./assistant-usability-plan.md) — 计划卡生命周期。PL-1/PL-3 已完成，PL-2 休眠，PL-4 待做
-- [`ar-arc-plan.md`](./ar-arc-plan.md) — 让 AI 真实活过来 + 成本护栏。AR-0/1/2 已封板
-- [`color-token-consolidation-plan.md`](./color-token-consolidation-plan.md) — 色值 token 收口。已完成，留作分类依据
-- [`china-launch-plan.md`](./china-launch-plan.md) — 境内上线（个人备案 + 邀请制）。腾讯云已上线；后续更新仍需在服务器按提交号执行部署脚本
+- [`assistant-usability-plan.md`](./assistant-usability-plan.md) — 计划卡生命周期。PL-1/PL-3 已完成，PL-2 休眠，PL-4 待做（已列入路线图）
+
+**已完成的计划**（保留作决策与口径依据）：
+
+- [`er-arc-plan.md`](./er-arc-plan.md) — 助手实体解析（动作/日期/拒答文案），ER-1 至 ER-3 与离线评测均已合入
+- [`ar-arc-plan.md`](./ar-arc-plan.md) — 真实模型接入与成本护栏。AR-0/1/2 已完成；真实流式与真实模型评测并入路线图阶段 1
+- [`color-token-consolidation-plan.md`](./color-token-consolidation-plan.md) — 色值 token 收口，留作分类依据
+- [`china-launch-plan.md`](./china-launch-plan.md) — 境内上线（个人备案 + 邀请制），腾讯云实例已上线
 
 ## 我要上线 / 排查线上
 

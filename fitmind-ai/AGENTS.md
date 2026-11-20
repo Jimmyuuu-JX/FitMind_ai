@@ -6,10 +6,12 @@
 
 先读本文件，再按改动类型读取最小必要文档：
 
+- 产品定位、原则与功能边界：`docs/PROJECT_BRIEF.md`；接下来做什么：`docs/roadmap.md`
 - API / HTTP 行为：`docs/api-contract.md`
 - 数据库与迁移：`docs/db-schema.md`
 - 助手、Tool Calling、RAG、模型成本：`docs/architecture.md`、`docs/ai-decisions.md`
 - 前端交互与合规文案：`docs/UI_SPEC.md`
+- 结构总览：`docs/architecture.md`
 - 部署与线上验证：`docs/production-smoke-checklist.md`、`deploy/README.md`
 - 历史与当前进度：`docs/INDEX.md`、`docs/progress.md`
 

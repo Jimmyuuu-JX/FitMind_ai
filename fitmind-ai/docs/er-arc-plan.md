@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-17
 - **Base:** `origin/main@e4bd2fb`
-- **Status:** ER-1B server wiring implemented; branch awaiting review before ER-1C
+- **Status:** Complete. ER-1 through ER-3 and the offline entity goldens are merged into `main`; per-batch notes below record their state at the time.
 - **Goal:** Let the assistant resolve exercises and date ranges from ordinary
   language so selecting an exercise on another page is no longer a prerequisite.
 

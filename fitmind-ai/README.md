@@ -2,9 +2,7 @@
 
 ## Overview
 
-FitMind AI is an evidence-backed AI training analysis system that connects workout logging, deterministic calculation tools, Tool Calling, SSE streaming, and a mobile-first React assistant UI.
-
-It is not a generic chatbot and not a pure CRUD app.
+FitMind AI is a training log for people who lift seriously, with a coach that only speaks from the user's own records. Numbers come from deterministic calculation code; the model chooses what to look at and explains it. Product positioning and boundaries: [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md).
 
 ## Deployments
 
@@ -25,7 +23,7 @@ Two targets are built from this repo. They differ in configuration only — same
 
 - The Vercel project is linked to GitHub. A push to `main` triggers a production deployment; pushes to other branches create preview deployments. Updating a Vercel environment variable still requires a new deployment before the running application reads it.
 - Vercel's build does **not** run PostgreSQL migrations. Any release containing a new migration must migrate and verify the intended Neon database before pushing to `main`; automatic code deployment is not automatic schema deployment.
-- `fitmind.jimmyuuu.com` is a self-hosted Tencent Cloud release. After the restricted GitHub Actions deployment key and repository Secrets are installed, a verified push to `main` automatically asks the server to deploy that exact commit; without that one-time setup, a Git push alone still changes nothing on Tencent Cloud.
+- `fitmind.jimmyuuu.com` is a self-hosted Tencent Cloud release. After the restricted GitHub Actions deployment key and repository Secrets are installed, a push to `main` runs release verification in GitHub Actions; once it passes, the deploy job waits for manual approval on the `production` environment and then asks the server to deploy that exact commit. Without that one-time setup, a Git push alone still changes nothing on Tencent Cloud.
 - Local `.env` changes do not synchronize to Vercel or Tencent Cloud. Each hosted environment keeps its own secrets and runtime configuration.
 
 ### Tencent Cloud deployment
@@ -128,13 +126,12 @@ AI layer:
 ## Key Documents
 
 - AI assistant rules / entry point: [AGENTS.md](AGENTS.md)
+- Product brief (positioning, principles, boundaries): [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md)
 - Roadmap (forward-looking plan): [docs/roadmap.md](docs/roadmap.md)
 - Local run guide: [docs/local-run-guide.md](docs/local-run-guide.md)
-- Demo script: [docs/demo-script.md](docs/demo-script.md)
 - **Start here — doc index: [docs/INDEX.md](docs/INDEX.md)** (organized by task, not by filename)
 - Production smoke checklist: [docs/production-smoke-checklist.md](docs/production-smoke-checklist.md)
 - China launch plan (mainland deployment, filings, compliance): [docs/china-launch-plan.md](docs/china-launch-plan.md)
-- Project study guide: [docs/project-study-guide.md](docs/project-study-guide.md)
 - Progress log (current quarter; earlier quarters under `docs/archive/`): [docs/progress.md](docs/progress.md)
 - UI spec: [docs/UI_SPEC.md](docs/UI_SPEC.md)
 - Architecture: [docs/architecture.md](docs/architecture.md)
