@@ -1,7 +1,7 @@
 import express from "express";
 import { ZodError } from "zod";
 
-import { assistantRouter } from "./routes/assistant.js";
+import { createAssistantRouter } from "./routes/assistant.js";
 import {
   athleteProfileRouter,
   injuryWithdrawalRouter,
@@ -23,6 +23,10 @@ import { HttpError, isHttpError } from "./utils/http-error.js";
 
 export interface CreateAppOptions {
   authRateLimiter?: AiRateLimiter;
+  /** Per-user limiter for assistant turns; defaults to the process-wide one. */
+  assistantRateLimiter?: AiRateLimiter;
+  /** Per-IP limiter for real-provider assistant turns; defaults to the process-wide one. */
+  assistantIpRateLimiter?: AiRateLimiter;
   now?: () => number;
   requestCompletionLogger?: (entry: HttpRequestCompletedLog) => void;
   unknownErrorLogger?: (entry: UnknownRequestErrorLog) => void;
@@ -167,7 +171,13 @@ export function createApp(options?: CreateAppOptions) {
   app.use("/api", personalHealthWithdrawalRouter);
 
   app.use("/api", apiRouter);
-  app.use("/api", assistantRouter);
+  app.use(
+    "/api",
+    createAssistantRouter({
+      aiRateLimiter: options?.assistantRateLimiter,
+      ipRateLimiter: options?.assistantIpRateLimiter,
+    }),
+  );
   app.use("/api", feedbackRouter);
   app.use("/api", athleteProfileRouter);
   app.use("/api", plannedWorkoutsRouter);

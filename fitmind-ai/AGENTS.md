@@ -121,6 +121,7 @@ pnpm eval
 - 目标单测：`pnpm test:unit -- <files>`
 - 合规浏览器门禁：`pnpm test:e2e:release`
 - 构建：`pnpm --filter @fitmind/server build`、`pnpm --filter @fitmind/client build`
+- 改动教练行为（路由、工具、提供方、提示词、答案组织）：在本地评测库跑 `pnpm --filter @fitmind/server eval:turns`，与上一次的分数对照；做法见 `docs/local-run-guide.md` 8.6 节
 - 迁移/SQL/部署 smoke：仅在所需数据库、容器、密钥和授权真实存在时运行；未运行就明确写“未验证”。
 
 提交只包含任务允许文件。提交前检查 staged diff 和负向用例；本地 commit、push、部署分别需要对应授权。不要把本地通过描述成 GitHub Actions 或生产已生效。

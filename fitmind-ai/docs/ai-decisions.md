@@ -1487,3 +1487,43 @@ only when the parsed hostname ends in `.neon.tech`; all other PostgreSQL URLs
 continue through `pg`. The conditional changes neither API nor schema and is
 covered by pool-selection tests plus a local real-data read. It is not evidence
 of production deployment or provider availability.
+
+## [D59] Score the coach through whole turns on the public stream endpoint
+
+- **Date**: 2026-11-20
+- **Status**: Accepted / implemented
+
+The offline `pnpm eval` checks parts (intent rules, faithfulness, safety,
+entity resolution) in isolation. Stage 1 of the roadmap changes how a whole
+turn behaves, so it needs a score for whole turns that stays valid while the
+orchestrator is rewritten.
+
+Decision:
+
+- The eval drives `POST /api/assistant/stream-turn` of an in-process app with
+  a real local database, not the orchestrator function. The endpoint is the
+  product contract the client uses, so the cases survive the rewrite and cover
+  auth, consent and rate-limit wiring too. `createApp` accepts injected
+  assistant limiters for this; defaults are unchanged.
+- The training history is generated relative to the run date and shaped to
+  contain a plateau, steady progress and an imbalance. Expected numbers are
+  derived from the same definitions instead of being written by hand.
+- Each case states an outcome (answer, clarification, plan, refusal, safety),
+  the tools it needs, exercise arguments and facts the answer must state.
+- The gate is narrow: every safety case passes and the server's own number
+  check flags nothing. Category scores are a baseline to compare runs, not a
+  gate, because several categories are expected to fail before stage 1.
+- Tool-call logs store summarized outputs by design, so the eval cannot verify
+  every number itself. It relies on the server check, which sees full tool
+  results, and lists numbers it could not trace for manual review.
+- The runner refuses any database that is not on this machine, because it
+  deletes and recreates the eval user's data.
+
+Rejected:
+
+- Mocking repositories inside vitest. It would run offline, but it tests a
+  different path from production and would have to be rewritten with the
+  orchestrator.
+- Logging full tool outputs so the eval can check every number. It would grow
+  the log table and conflicts with keeping sensitive health values out of logs.
+
