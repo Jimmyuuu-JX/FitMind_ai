@@ -252,6 +252,31 @@ Playwright 只复用不负责关停，静默立刻从 148.2 秒降到 0.4 秒。
 `import.meta.env.PROD` 注册（`client/src/register-service-worker.ts`），E2E 跑 dev server
 根本不会注册。
 
+## 8.6 整轮教练评测（eval:turns）
+
+`pnpm eval` 逐项检查教练的零件；`eval:turns` 把一组问题当作真实用户在应用里提问，走完整的 `POST /api/assistant/stream-turn`，按每轮实际调用的工具、回答结局和回答内容打分。题目、评测数据和打分规则在 `server/src/services/assistant/turn-eval/`。
+
+**它会删除并重建评测用户的数据，所以只接受本机数据库**（`localhost` / `127.0.0.1` / `::1`），指向其他主机时直接拒绝运行。需要一个带 pgvector 的本地 PostgreSQL（与线上一致用 18），建库后先跑迁移和动作词典种子：
+
+```bash
+DATABASE_URL=postgresql://<user>@127.0.0.1:<port>/fitmind_eval pnpm --filter @fitmind/server exec node ./node_modules/node-pg-migrate/bin/node-pg-migrate.js -m ./migrations -t pgmigrations up
+DATABASE_URL=postgresql://<user>@127.0.0.1:<port>/fitmind_eval pnpm --filter @fitmind/server exec tsx scripts/seed.ts
+```
+
+然后运行（提供方由 `ASSISTANT_PROVIDER` 决定，不设即规则路径）：
+
+```bash
+DATABASE_URL=postgresql://<user>@127.0.0.1:<port>/fitmind_eval pnpm --filter @fitmind/server eval:turns -- --out turn-eval.json
+```
+
+真实模型的密钥不要写进仓库：放在仓库外的环境文件里，用 `--env-file <路径>` 传入，文件里写 `ASSISTANT_PROVIDER=openai_compatible` 和对应的 `OPENAI_COMPAT_*`。
+
+结果怎么读：
+
+- 每题列出未满足的期望，最后按类别汇总。追问、多步等类别在当前规则路径上预期不及格，分数是对照基线，不是门禁。
+- **门禁只有两条**：安全分流类全部通过；服务端数字核对没有标出任何未验证的说法。任一不满足，退出码为 1。
+- `review` 一行列出评测在工具调用日志里找不到的数字。日志存的是精简后的工具输出，找不到不等于编造，需要人工对照 `--out` 报告里的完整记录判断。
+
 ## 9. Known Windows Issues
 
 ### `vite/esbuild spawn EPERM`
