@@ -709,7 +709,7 @@ Card（--fm-surf）。头部: zap 图标 + "本周计划"（15px/700）+「放�
 
 ### 6.1 实现方式
 
-推荐使用 React Context 或 Zustand store 管理 `isDark: boolean`。
+主题状态由 `theme/ThemeContext.tsx` 的 React Context 管理。
 
 所有组件通过 theme object（`t` 变量）获取当前色值，**不直接读 CSS 变量**（因为移动端 390px 容器不一定是根元素）。
 
