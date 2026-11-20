@@ -27,8 +27,6 @@
 ### 复审条件
 什么情况下要重新审视这个决策。
 
-### 面试讲点
-面试官问到时怎么答。
 ```
 
 ------
@@ -57,12 +55,6 @@
 - Anthropic 服务在你部署区域不稳定
 - 需要做对照实验
 
-### 面试讲点
-
-> 我选 Claude 主要看 Tool Calling 的工程友好性，它的 stream 事件类型清晰（content_block_start / content_block_delta / message_stop），便于前端做状态机。我把模型调用做了抽象层，如果未来要换模型，只需改 anthropicClient.ts 一处。
-
-------
-
 ## [D02] Tool 返回结论而不是原始数据
 
 - **日期**：阶段 0
@@ -86,12 +78,6 @@
 
 如果发现模型解释能力不够（讲不清楚为什么疲劳分数高），考虑返回更多上下文。
 
-### 面试讲点
-
-> 这是我项目最大的工程决策。如果让模型基于原始 sets 数据自己算疲劳，会有两个问题：一是模型可能算错（不擅长精确数值计算），二是上下文成本失控。我把算法层独立出来，确定性计算用 TS，模型只负责把结论翻译成自然语言。这样回答始终绑定真实数据，规避了基于原始日志直接推理的幻觉风险。
-
-------
-
 ## [D03] SSE 而不是 WebSocket
 
 - **日期**：阶段 0
@@ -114,12 +100,6 @@ SSE。
 ### 复审条件
 
 如果未来加入实时多人功能（如训练直播），考虑 WebSocket。
-
-### 面试讲点
-
-> AI 流式输出本质是单向推送（服务器 → 客户端），SSE 完全够用。它走 HTTP，部署简单（无需特殊网关）。SSE 协议本身适合单向流式输出，浏览器原生 EventSource API 还自带断线自动重连，但我项目因为要 POST body 和 Authorization header，没用 EventSource，而是 fetch + ReadableStream 自己实现 SSE 解析——重连、中断、超时全都自己控制（详见 D04）。WebSocket 适合双向通信场景，对当前项目是过度设计。
-
-------
 
 ## [D04] Fetch + ReadableStream 而不是 EventSource
 
@@ -149,12 +129,6 @@ Fetch + ReadableStream。
 
 若浏览器原生 API 增强支持 POST + custom headers，可重新评估。
 
-### 面试讲点
-
-> EventSource 不能 POST 也不能加鉴权头，但聊天请求必须带 body 和 token，所以只能用 fetch + ReadableStream。我手动实现了 SSE 帧解析器，处理 `event:` 行、`data:` 行的拼接、空行作为消息边界。这给了我对流的完全控制——可以做 buffer、批量刷新、AbortController 中断。
-
-------
-
 ## [D05] 前端状态机四态
 
 - **日期**：阶段 0
@@ -177,12 +151,6 @@ Tool Calling 场景下，AI 响应有多个阶段：思考、调工具、生成�
 ### 实现
 
 用 `useReducer` 而不是多个 `useState`。
-
-### 面试讲点
-
-> 普通聊天用 loading 一态够了，但我的项目有 Tool Calling 多轮调用，所以设计了四态状态机。前端能在 UI 上分别展示「正在思考...」「正在查询训练数据...」「正在生成建议...」「完成」，让用户清楚 AI 在做什么。我用 useReducer 管理是因为状态转换有约束（比如 tool_calling 不能直接到 idle），用 reducer 集中处理转换逻辑比散落多个 useState 干净。
-
-------
 
 ## [D06] 训练负荷 / 疲劳计算公式
 
@@ -250,19 +218,13 @@ MVP 阶段（数据少时）：
 【解决冷启动（新用户用全局值）
 解决评分漂移（rolling baseline 每周更新，不是每次重算）
 保留可解释性（evidence 里能看到这次评分用的什么 baseline）
-面试讲点更强：你能讲「我考虑过简单的动态归一化，但发现会有评分漂移问题——同一条历史训练记录的评分会随时间变化，这破坏了用户对数据的信任。所以我做了 hybrid 方案……」】
+取舍理由：简单的动态归一化会让同一条历史训练记录的评分随时间变化，破坏用户对数据的信任，所以采用 hybrid 方案。】
 ```
 
 ### 复审条件
 
 - 实际使用中发现 fatigue_score 不灵敏（总是接近 0 或 10）
 - 找到更合适的运动科学模型且可解释
-
-### 面试讲点
-
-> 我没有把它包装成医学疲劳模型，而是简化的训练负荷追踪模型。指数衰减是因为「2 天前练的腿和今天练的腿恢复程度完全不一样」，线性衰减不能反映这个特性。RPE 因子是因为同样重量同样组数，RPE 9 和 RPE 6 的疲劳完全不同。肌群贡献度来自 exercise_muscles 关联表，让卧推也能正确把负荷分给三头和肩前束。τ 默认 3.5 天是参考一般肌群恢复周期，做成常量是为了可调可讲。
-
-------
 
 ## [D07] 停滞检测算法
 
@@ -304,12 +266,6 @@ estimated_1rm = weight × (1 + reps / 30)
 
 如果误判太多（明明停滞却没识别 / 明明在涨却报停滞）。
 
-### 面试讲点
-
-> 停滞检测用滑动窗口线性回归，比简单对比稳健很多。简单对比受单次表现波动影响大（今天状态差不代表停滞），回归看的是趋势。1RM 估算用 Epley 公式（weight × (1 + reps/30)），是力量训练领域常见的估算法。阈值做成可配置常量，方便调试和讲解。
-
-------
-
 ## [D08] 数据库 ORM 选择
 
 - **日期**：阶段 0
@@ -332,19 +288,13 @@ estimated_1rm = weight × (1 + reps / 30)
 ### 选择理由
 
 - 项目核心查询不复杂（无需复杂 ORM 抽象）
-- 学 SQL 比学 ORM 更通用，面试讲索引、JOIN、CTE 时有底
+- 手写 SQL 对索引、JOIN、CTE 的控制更直接
 - Prisma 对 PostgreSQL 数组类型、复杂聚合支持有限
 - 写 SQL 你已经在 SunSafe 项目证明过能力
 
 ### 复审条件
 
 如果发现某些复杂查询写起来太痛苦，加 Knex 作为 query builder（不上 Prisma）。
-
-### 面试讲点
-
-> 我选手写 SQL 不是因为反对 ORM，是因为项目的查询模式比较固定，ORM 抽象反而增加心智负担。手写 SQL 让我能精确控制索引使用，分析层的复杂聚合（按肌群分组、加权求和、关联多表）写 SQL 比 ORM 链式调用清晰。
-
-------
 
 ## [D09] embedding provider 选型（扩展阶段 RAG）
 
@@ -376,12 +326,6 @@ Phase 4.8C 选择 **Voyage AI `voyage-4-lite`**，固定使用 `1024` 维 float 
 - 需要更高召回或更低成本时，比较 `voyage-4-lite`、`voyage-4`、OpenAI embeddings 或本地 BGE
 - 准备添加 HNSW / IVFFlat index 时重新评估 recall / latency / migration 风险
 
-### 面试讲点
-
-> 我做 RAG 时没有直接把关键词检索包装成“向量检索”，而是先把 provider、维度和 pgvector schema 锁定。Anthropic 不提供 embedding，所以选择 Voyage AI；`voyage-4-lite` 默认 1024 维，和 `vector(1024)` 对齐。第一版不急着加 ANN index，因为 corpus 很小，exact cosine search 更容易验证正确性。
-
-------
-
 ## [D10] MCP SDK 版本（扩展阶段 B）
 
 - **日期**：扩展阶段 B 开始前填
@@ -401,12 +345,6 @@ Phase 4.8C 选择 **Voyage AI `voyage-4-lite`**，固定使用 `1024` 维 float 
 - 为什么不用 v2（如适用）：____
 - 官方文档链接：____
 ```
-
-### 面试讲点
-
-> MCP 生态变化快，我做的时候 v2 还是 pre-alpha，所以选了稳定的 v1.x。我把版本选型决策都记在 ai-decisions.md，包括当时的版本号、官方文档链接，这样后面有人接手能看到背景。
-
-------
 
 ## [D11] 系统 Prompt 设计（迭代记录）
 
@@ -443,12 +381,6 @@ Output format:
 ### v2、v3 等等
 
 （后续迭代时填，记录每版改了什么、为什么）
-
-### 面试讲点
-
-准备一个 prompt 迭代故事：v1 有什么问题（比如模型不调工具直接答），v2 怎么改的（强化 ALWAYS call tool first），效果如何。
-
-------
 
 ## 待决定列表（阶段进行中填）
 
@@ -489,9 +421,6 @@ Phase 0.2 需要在不连接真实数据库、也不创建真实业务表 migrat
 - 如果后续数据层路线从手写 SQL 转向其他 ORM / query builder
 - 如果迁移脚本需要更强的 TS 类型支持或 seed 生态
 
-### 面试讲点
-
-> 我在工程早期先把 migration 工具链补齐，但没有急着生成业务表迁移。因为这个阶段的目标是先建立“可演进的工程底座”，而不是提前进入业务实现。之所以选 `node-pg-migrate`，是因为项目的数据层路线本来就是 `node-postgres + 手写 SQL`，它和这条路线一致，不会额外引入 ORM 心智负担。
 ## [D18] Phase 4.9 RAG operations path: hybrid retrieval plus fixture ingestion
 
 - **Date**: 2026-06-07
@@ -579,7 +508,7 @@ Out of scope（本次不做）：
 - **Status**: Accepted（数据集 + 评测器 + runner + `pnpm eval` + 单测已落地）
 
 背景：
-- 面试高频问题"你怎么知道它对 / 不回归？"此前没有标准答案。需要一个可离线复现、零成本的 eval 套件，把"对不对"变成可量化、可门禁的指标。
+- "怎么知道它对、改了以后有没有退步"此前没有可重复的答案。需要一个可离线复现、零成本的 eval 套件，把"对不对"变成可量化、可门禁的指标。
 
 Decision：
 - 新增 `server/src/services/assistant/assistant-eval.ts`：golden 数据集（`AssistantIntentEvalCase` { message, mode, expectedIntent, mustCiteEvidence?, shouldRefuse? } + `FaithfulnessEvalCase` { answer, toolOutputs, expectedStatus }）+ 三个纯函数评测器。
@@ -729,7 +658,7 @@ Decision（为何暂缓接真实大模型）：
 - **确定性 / 可复现**：mock 输出确定，单测与 `pnpm eval` 能断言 intent 路由 / 拒答 / faithfulness；真实模型有随机性，不适合做回归断言的**基线**。
 - **风险面已被架构压到最小**：模型不产出用户可见数字（数字来自计算层 + faithfulness 校验），所以「先用 mock 把护栏/闭环做扎实，再换模型」是低风险顺序。
 
-真接真实大模型时，会变的维度（这条是面试可讲的核心）：
+真接真实大模型时，会变的维度：
 - **流式 token 计费**：provider 层加 streaming；observability（D25）补 input/output token 数与成本字段；限流（D25）从「次数」叠加「token / 成本预算」。
 - **Prompt caching 经济学**：system prompt + 工具定义是稳定前缀，可用 provider 的 prompt caching 显著降本；意味着 prompt 要稳定、把易变上下文后置。
 - **faithfulness / eval 从「锦上添花」变「刚需」**：mock 不会编造，真实模型会——D21 的运行时 faithfulness 校验和 D22 的 eval 门禁此时才真正发挥拦截价值（编造数字会被标注 / 回归会非零退出）。这正是先做 Slice 1/2 的理由。
@@ -794,9 +723,9 @@ Decision：
 - 用户问"考虑 Python + FastAPI 的加入"。当前栈是 Node/Express/TS 单仓（client/server/shared），无任何需要 Python 的计算。
 
 判断：
-- **现在不加**：FitMind 现有计算是确定性 TS + provider 走 fetch，没有 Python 才擅长的负载；只为"简历有 Python"而引入会把干净单仓拆成两套运行时/部署/CI，是 resume-driven、得不偿失。
+- **现在不加**：FitMind 现有计算是确定性 TS + provider 走 fetch，没有 Python 才擅长的负载；没有实际需要就引入会把单仓拆成两套运行时/部署/CI，得不偿失。
 - **真正值得切入的位置（都在 Phase C / 真实模型之后）**：把**单一 ML 重活**拆成一个 FastAPI 微服务，Node 端通过 HTTP 调用（干净接缝，呼应 provider seam 哲学）。最佳候选：① RAG **reranker**（cross-encoder，Python 生态成熟）；② **安全分类器**（Slice 10，若用 HF transformer / 微调模型）；③ 离线 **eval / 实验台**（pandas / ragas 等）。
-- 若决定做：保持核心单仓 TS 不变，只新增**一个**职责单一的 Python 服务，并在本文件记"为何这块用 Python、边界在哪"。这本身是"按合适工具选型 + 服务化"的好面试叙事，强于到处塞 Python。
+- 若决定做：保持核心单仓 TS 不变，只新增**一个**职责单一的 Python 服务，并在本文件记"为何这块用 Python、边界在哪"。
 
 与未来的关系：归入 §8.2 Phase C，作为 C2（reranker）或 C3（安全分类器）的可选实现方式，不早于 Slice 11。
 

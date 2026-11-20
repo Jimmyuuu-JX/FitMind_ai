@@ -1,348 +1,114 @@
 # 架构文档（architecture.md）
 
-> 这份文档说明 FitMind AI 的前后端分层、数据流、模块划分。 改动任何分层结构前，先更新这份文档。
+> 说明 FitMind AI 现在是怎么搭起来的：分几块、数据怎么流、部署在哪。
+> 目录与依赖方向的硬规则在 `AGENTS.md` 第 3、4 节，由测试守住；本文解释结构，不逐个列文件。
+> 产品层面的目标形态见 [`PROJECT_BRIEF.md`](./PROJECT_BRIEF.md)，改造顺序见 [`roadmap.md`](./roadmap.md)。
 
-------
+---
 
-## 1. 总体架构图
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                       Client（React + TS）                   │
-│                                                             │
-│   ┌──────────┐    ┌──────────┐    ┌──────────┐             │
-│   │ features │ →  │  hooks   │ →  │ services │             │
-│   │ (业务模块)│    │ (复用逻辑)│    │ (API 客户端)│           │
-│   └──────────┘    └──────────┘    └──────────┘             │
-│         ↓               ↓                ↓                 │
-│   ┌──────────┐    ┌──────────┐    ┌──────────┐             │
-│   │components│    │  store   │    │  utils   │             │
-│   │ (纯 UI)  │    │ (Zustand)│    │ (纯函数)  │             │
-│   └──────────┘    └──────────┘    └──────────┘             │
-└─────────────────────────────────────────────────────────────┘
-                            ↓ HTTPS / SSE
-┌─────────────────────────────────────────────────────────────┐
-│                    Server（Express + TS）                    │
-│                                                              │
-│   routes → controllers → services → db                      │
-│              (薄)        (业务逻辑)   (查询)                  │
-│                                                              │
-│   services 内部分层（合法调用方向）：                           │
-│                                                              │
-│   AI 编排层 (services/ai)                                     │
-│       │  调用                                                │
-│       ▼                                                      │
-│   计算层 (services/analytics)                                │
-│       │  读取                                                │
-│       ▼                                                      │
-│   仓库层 (db/repositories)                                   │
-│  禁止反向：❌ analytics → ai ❌ db → services                │ 
-│  ❌ controllers → db（必须经 services）                      │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                  PostgreSQL（Neon + pgvector）               │
-│                                                              │
-│  users / muscle_groups / exercises / exercise_muscles       │
-│  workouts / sets / chat_sessions / messages                 │
-│  tool_call_logs / knowledge_chunks (扩展阶段)                │
-└─────────────────────────────────────────────────────────────┘
-```
-
-------
-
-## 2. 前端分层详解
-
-### 2.1 各层职责
-
-| 层           | 职责                | 不能做什么                      |
-| ------------ | ------------------- | ------------------------------- |
-| `features/`  | 业务功能模块        | 不能直接被 components import    |
-| `hooks/`     | 复用逻辑            | 不能渲染 UI                     |
-| `services/`  | API 客户端          | 不能 import 任何 React 代码     |
-| `store/`     | 全局状态（Zustand） | 不直接发请求（请求走 services） |
-| `types/`     | TS 类型             | 纯类型，无运行时代码            |
-| `utils/`     | 纯函数工具          | 不能依赖任何业务概念            |
-| `constants/` | 常量                | 同上                            |
-
-其中`components/`分为共享展示组件和业务组件。
-共享展示组件路径是`components/shared/`或 `components/ui/`，不可以 fetch，不可以读 store，数据来源是props。
-业务组件路径是 `features/<domain>/components/`，不可以 fetch，可以读 store（通过 hook），数据来源是hooks + props 。业务组件可以通过 feature 内的 hook 间接使用 store（例如 `useChatSession()` 内部读 `useChatStore`），但**不允许**业务组件直接 `import { useChatStore }` 然后从 store 取业务字段。这样将来 store 实现换掉时，只改 hook 不改组件。
-
-### 2.2 一个典型业务流：用户提交聊天
+## 1. 总览
 
 ```
-ChatBox 组件（features/chat/ChatBox.tsx）
-       ↓ 调用
-useStreamChat hook（hooks/useStreamChat.ts）
-       ↓ 调用
-chatService.streamMessage（services/chat-service.ts）
-       ↓ fetch SSE
-后端 /api/chat
-       ↓ 返回 chunks
-useStreamChat 内部维护状态机：thinking → tool_calling → answering → done
-       ↓ 通过 setState 更新
-ChatBox 渲染对应 UI
-       ↓
-useChatStore（store/chat-store.ts）持久化会话历史
+┌───────────── 客户端 client/（React + Vite PWA）─────────────┐
+│ App.tsx：登录 → 同意 → 四个分区（训练 / 历史 / 教练 / 个人）  │
+│ features/<业务域>/  页面、组件、hooks、*-api.ts                │
+│ services/http-client.ts  统一请求（cookie 会话）               │
+│ theme/  主题 token，内联样式                                   │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ HTTPS（JSON / SSE）
+┌──────────── 服务端 server/（Express + TypeScript）───────────┐
+│ routes → controllers → services → db（repository）           │
+│ services/training   训练业务与确定性计算                      │
+│ services/assistant  教练编排、提供方、评测、观测               │
+│ services/agent      周计划生成                                │
+│ services/rag        知识检索                                  │
+│ services/ai         中立的提供方传输与工具层                   │
+│ services/auth       认证与同意                                │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                 PostgreSQL + pgvector（Neon 托管）
+
+shared/  客户端与服务端共用的跨边界类型
 ```
 
-### 2.3 features 模块划分
+---
 
-```
-features/
-├── auth/          # 登录注册
-├── training/      # 训练日志（CRUD、日历视图、动作选择器）
-├── chat/          # AI 对话界面
-├── dashboard/     # 训练数据可视化（容量分布图、进展曲线）
-└── knowledge/     # 动作知识查询（RAG 扩展阶段）
-```
+## 2. 客户端
 
-### 2.4 SSE 状态机（核心模块）
+- **导航。** 没有路由库。`App.tsx` 用状态切换四个分区，各分区保持挂载、按显示隐藏切换；进入主界面前依次经过会话恢复、登录注册和补签同意。
+- **按业务域组织。** `features/` 下是 `training`（记录、历史、分析、动作库）、`assistant`（教练对话、周计划、周报、洞察）、`profile`（个人工具与训练档案）、`auth`、`feedback`。每个域自带页面、组件、hooks 和 `*-api.ts` 端点封装。
+- **共享层。** `components/` 是与业务无关的界面组件；`services/http-client.ts` 统一处理请求、cookie 会话和错误。跨组件状态用 React state 与 feature 内的 hook/context，不使用全局状态库。
+- **样式。** 主题 token 定义在 `theme/`，组件用内联样式引用 token；品牌色字面量由 ESLint 拦截。界面规范以 [`UI_SPEC.md`](./UI_SPEC.md) 为准。
+- **PWA。** 生产构建注册 service worker，缓存应用外壳和静态资源，离线时显示兜底页。
 
-`hooks/useStreamChat.ts` 内部的状态机：
+---
 
-```
-State = 'idle' | 'thinking' | 'tool_calling' | 'answering' | 'done' | 'error' | 'aborted'
+## 3. 服务端
 
-分层职责：
-  - 后端：消费 Anthropic 原始 stream 事件（content_block_start / content_block_delta / message_stop 等）
-          转换成项目自定义 SSE 事件后再推给前端
-  - 前端：只消费项目自定义事件，不感知任何 Anthropic 协议细节
+### 3.1 分层
 
-项目自定义 SSE 事件类型（详见 docs/api-contract.md 第 6 节）：
-  state            后端通知前端切状态：thinking / tool_calling / answering / done
-  tool_result      工具调用结果
-  text_delta       文本流增量
-  structured_output 最终结构化输出
-  error            错误事件
+routes 只挂载；controllers 处理 HTTP 参数、调用 service、映射响应；services 承担业务；repositories 写参数化 SQL。所有用户资源都按已认证用户约束，跨用户与不存在的资源返回相同结果。细则见 `AGENTS.md` 第 4 节。
 
-前端状态机事件流（消费的是后端转译后的事件）：
-  user submits → 'thinking'
-  receive event:state {state:'tool_calling'} → 'tool_calling'
-  receive event:state {state:'answering'} → 'answering'
-  receive event:state {state:'done'} → 'done'
-  receive event:error → 'error'
-  user clicks abort → 'aborted'
+### 3.2 确定性计算
 
-未来换模型时，只需改后端的事件转译层，前端代码无需改动。
-```
+训练汇总、动作进展与估算 1RM、肌群负荷（按动作—肌群贡献权重分摊）、周报、计划依从度等都在 `services/training` 与对应 repository 中用代码计算。口径见 [`calculation-layer.md`](./calculation-layer.md)。这是教练回答中所有数字的唯一来源。
 
-详细实现在 `docs/ai-decisions.md` 的 SSE 章节。
+### 3.3 教练的一轮请求（现状）
 
-------
+入口是 `POST /api/assistant/stream-turn`，以 SSE 返回。当前流程：
 
-## 3. 后端分层详解
+1. 校验请求，解析消息中的日期范围与动作名，恢复会话。
+2. **安全分流**：伤痛、用药、诊断类问题直接返回就医提示，不进入模型。
+3. **意图路由**：先用关键词规则判断；规则未命中且配置了 OpenAI 兼容提供方时，才让模型做一次简短分类。
+4. 按意图分支：需要澄清时直接追问；知识类问题走检索并用模板组织答案；周计划走确定性生成器；其余由模型从少量只读工具中选择**一个**。
+5. 执行工具，**由模板根据工具结果拼出答案**；可选地让模型改写摘要，改写结果要通过数字核对。
+6. 数字核对：答案中的数值必须出现在工具结果中。
+7. 保存消息与工具调用日志，按事件推送：状态、会话、提供方、工具开始/结束、计划步骤、答案分段、结构化输出、完成。
 
-### 3.1 各层职责
+请求只携带当前这条消息，不带对话历史；答案在生成完毕后分段推送，并非模型逐字输出。提供方出错或超出预算时退回确定性路径。
 
-| 层             | 职责                         | 不能做什么                              |
-| -------------- | ---------------------------- | --------------------------------------- |
-| `routes/`      | 路由定义、绑定 controller    | 不能写业务逻辑                          |
-| `controllers/` | 解析参数、调 service、返响应 | 不能写 SQL、不能 import 其他 controller |
-| `services/`    | 业务逻辑核心                 | 不能直接读 req/res                      |
-| `db/`          | 数据库查询封装               | 不能 import services                    |
-| `middleware/`  | 鉴权、限流、错误兜底         | 不能 import services（避免循环依赖）    |
+这与说明书中「模型主导、多步调用工具、带对话历史、真实流式」的目标形态有明显差距，改造步骤见路线图阶段 1。改造完成后本节随之重写。
 
-### 3.2 services 内部分层
+### 3.4 提供方与成本
 
-```
-services/
-├── analytics/                   # 计算层（不依赖 AI）
-│   ├── fatigue.ts               # 疲劳分数
-│   ├── volume.ts                # 训练容量分布
-│   ├── progress.ts              # 进展斜率
-│   ├── plateau.ts               # 停滞检测
-│   └── __tests__/               # 单元测试
-├── ai/                          # AI 编排层
-│   ├── anthropicClient.ts       # API 调用封装
-│   ├── toolLoop.ts              # Tool Calling 循环（核心）
-│   ├── structuredOutput.ts      # JSON Schema 校验输出
-│   ├── tools/                   # 工具实现（每个 tool 一个文件）
-│   │   ├── getRecoveryStatus.ts
-│   │   ├── getProgressAnalysis.ts
-│   │   ├── getWeeklyVolumeDistribution.ts
-│   │   └── getRecentTrainingSignals.ts
-│   └── prompts/
-│       ├── system.ts            # 系统提示词
-│       └── outputSchema.ts      # JSON 输出 schema
-├── rag/                         # RAG（扩展）
-├── mcp/                         # MCP（扩展）
-└── agent/                       # ReAct Workflow（扩展）
-```
+提供方在适配层后面：确定性（默认）、Anthropic、Groq、OpenAI 兼容（境内实例用于 DeepSeek）。型号由环境变量配置。每轮请求记录用量与估算成本；全实例有每日调用次数与费用上限，按用户和按 IP 有速率限制，超出后降级而不是报错。具体数值见中间件与预算策略源码，决策理由见 [`ai-decisions.md`](./ai-decisions.md)。
 
-### 3.3 数据流：用户问问题
+### 3.5 训练录入解析
 
-```
-POST /api/chat (SSE)
-   │
-   ▼
-[middleware] auth → rateLimit
-   │
-   ▼
-chatController.streamChat(req, res)
-   │
-   ├─ 拼装 messages（取出会话历史）
-   │
-   ▼
-aiService.streamWithTools(messages)
-   │
-   ├─ 调用 Anthropic API（stream + tools）
-   │
-   ├─ 收到 tool_use 事件 ───▶ ai/toolLoop.ts 执行工具
-   │                            │
-   │                            ▼
-   │                      ai/tools/getRecoveryStatus
-   │                            │
-   │                            ▼
-   │                      analytics/fatigue.ts 算分
-   │                            │
-   │                            ▼
-   │                      db/sets-repo.ts 查 sets 表
-   │                            │
-   │                            ▼
-   │                      返回 tool_result
-   │
-   ├─ 把 tool_result 拼回 messages，再次调 API
-   │
-   ├─ 收到最终 JSON 输出
-   │
-   ▼
-通过 SSE 把 chunks 推给前端 (res.write)
-   │
-   ▼
-记录 tool_call_logs 到数据库
-```
+语音（浏览器语音识别转文字）与自由文本都提交到解析接口：先用规则与动作词典解析，结果不完整时再调用模型做结构化解析。匹配不上的动作交给用户选择，任何结果都要用户在训练页确认后才保存。
 
-------
+### 3.6 知识检索
 
-## 4. 关键模块设计
+动作知识分块存在 pgvector 中，向量与关键词混合打分；未配置 embedding 时退回关键词检索，并有相关性下限，避免答非所问。重排序默认关闭。
 
-### 4.1 Tool Calling 循环（伪代码）
+---
 
-```typescript
-async function* streamWithTools(messages, tools) {
-  let currentMessages = messages;
-  let iterations = 0;
-  const MAX_ITERATIONS = 5;
+## 4. 数据
 
-  while (iterations < MAX_ITERATIONS) {
-    const response = anthropic.messages.stream({
-      messages: currentMessages,
-      tools,
-      system: SYSTEM_PROMPT,
-    });
+表结构见 [`db-schema.md`](./db-schema.md)，迁移在 `server/migrations/`，按顺序执行且与上一版应用向后兼容（规则见 `AGENTS.md` 第 7 节）。主要几类：
 
-    let toolUses = [];
-    for await (const chunk of response) {
-      yield chunk; // 转发给前端
-      if (chunk.type === 'tool_use') toolUses.push(chunk);
-    }
+- 训练：用户、动作、肌群、动作—肌群贡献、训练、组。
+- 教练：会话、消息、工具调用日志、收藏洞察、周报摘要、计划训练、训练档案。
+- 知识：文档与分块向量。
+- 个人与合规：经期记录、身体数据、训练备忘录、个人健康设置、带版本的同意记录、产品反馈。
 
-    if (toolUses.length === 0) return; // 模型不再调工具，结束
+---
 
-    // 执行所有工具
-    const toolResults = await Promise.all(
-      toolUses.map(tu => executeTool(tu.name, tu.input))
-    );
+## 5. 部署
 
-    // 拼回 messages
-    currentMessages = [
-      ...currentMessages,
-      { role: 'assistant', content: toolUses },
-      { role: 'user', content: toolResults },
-    ];
+同一份代码部署为两个实例，差异全部来自运行时配置（注册策略、数据驻留、提供方、备案信息等）。
 
-    iterations++;
-  }
+| 实例       | 形态                                                                                   | 发布方式                                                                                                     |
+| ---------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 海外演示   | Vercel：静态前端 + `api/index.js` 无服务器函数加载 Express 应用                        | 推送 `main` 后由 Vercel 自动部署；分支推送生成预览                                                           |
+| 境内正式   | 腾讯云轻量服务器：Docker Compose（迁移、API、Web）+ nginx 反代与 HTTPS，邀请制注册     | 推送 `main` 触发 GitHub Actions：先验证，再经 production 环境人工批准，通过受限 SSH 命令部署指定提交，失败自动回退 |
 
-  throw new Error('Tool loop exceeded max iterations');
-}
-```
+数据库由 Neon 托管；境内实例使用的项目事实见 [`evidence/neon-production-facts.md`](./evidence/neon-production-facts.md)。境内实例的搭建、轮换和回滚步骤见 `deploy/README.md`，上线前自查见 [`production-smoke-checklist.md`](./production-smoke-checklist.md)。
 
-### 4.2 计算层模块独立性
+仓库不附带定时任务触发方。周报生成接口需要由部署方另配定时器调用，见 [`api-contract.md`](./api-contract.md)。
 
-`analytics/fatigue.ts` **必须**满足：
+---
 
-- 输入：原始训练数据 + 配置参数
-- 输出：纯数值结论
-- **不依赖** AI、不依赖 HTTP、不依赖具体数据库（通过仓库注入）
+## 6. 本地运行与验证
 
-这样保证：
-
-- 单元测试好写
-- 算法可被任何上层调用（API / MCP / CLI）
-- 算法可独立讲清楚（面试加分）
-
-------
-
-## 5. 数据流向规则（防止意大利面架构）
-
-```
-合法的依赖方向（→ 表示可以 import）：
-
-  components → hooks → services → 后端
-  components → store
-  features → components
-  features → hooks
-  features → services
-  features → store
-
-  routes → controllers → services → db
-  services/ai → services/analytics → db
-  controllers → middleware（间接，通过 app.use）
-
-非法的依赖（CI 必须拦截）：
-
-  ❌ services → components
-  ❌ analytics → ai
-  ❌ db → services
-  ❌ controllers → controllers
-```
-
-`AGENTS.md` 第 2 节的分层硬规则就是这一节的简版。AI 写代码时如果违反，立刻打回。
-
-------
-
-## 6. 部署架构
-
-```
-┌──────────┐    ┌──────────┐    ┌──────────┐
-│  Vercel  │───▶│  Render  │───▶│   Neon   │
-│ (Client) │    │ (Server) │    │   (DB)   │
-└──────────┘    └──────────┘    └──────────┘
-     │              │
-     │              ├── 环境变量：
-     │              │   ANTHROPIC_API_KEY
-     │              │   DATABASE_URL
-     │              │   JWT_SECRET
-     │              │   VOYAGE_API_KEY (扩展阶段)
-     │
-     └── 环境变量：
-         VITE_API_URL
-```
-
-### 环境分离
-
-- 本地：`.env.local` + 本地 PostgreSQL（或 Neon dev branch）
-- 生产：Vercel / Render 各自的环境变量
-
-------
-
-## 7. 演进路径
-
-```
-现在 ──▶ 阶段 1-5（主线） ──▶ 主线门控 ──▶ 扩展 A/B/C ──▶ 打磨
-
-主线完成时项目大小约：
-  - 前端：30-40 个文件
-  - 后端：25-35 个文件
-  - 文档：8-10 份
-
-主线 + 扩展完成约：
-  - 前端：50-60 个文件
-  - 后端：50-70 个文件
-  - 文档：12-15 份
-
-如果某阶段文件数超出 50% 预期，说明要么过度设计，要么在挖坑——回头审视。
-```
+本地启动、演示账号和种子数据见 [`local-run-guide.md`](./local-run-guide.md)。离线门禁是 `pnpm verify` 与 `pnpm eval`，浏览器端到端测试用 Playwright 并模拟后端，范围见 `AGENTS.md` 第 9 节。

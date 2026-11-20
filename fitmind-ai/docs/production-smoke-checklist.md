@@ -213,7 +213,7 @@ Use this checklist before sending the app to an interviewer, friend, or recruite
 | SSE 渲染流畅度 | ~60fps | TBD | | |
 | 训练日志列表（~100 条） | < 500ms | TBD | | |
 
-> 回填后，把达标的数字同步到 `README.md` 与 `docs/project-study-guide.md`（面试稿），并在本表标注测试日期 / 机型 / 网络（Wi-Fi / 4G）。注意：助手 TTFT / Tool 端到端依赖 `ASSISTANT_PROVIDER`——线上若用 mock 则偏快，用真实 Anthropic 才是真实体验，记录时注明 provider。
+> 回填后，把达标的数字同步到 `README.md`，并在本表标注测试日期 / 机型 / 网络（Wi-Fi / 4G）。注意：助手 TTFT / Tool 端到端依赖 `ASSISTANT_PROVIDER`——线上若用 mock 则偏快，用真实 Anthropic 才是真实体验，记录时注明 provider。
 
 ## Verification Notes
 

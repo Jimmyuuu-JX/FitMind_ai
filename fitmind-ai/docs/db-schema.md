@@ -136,7 +136,6 @@ CREATE INDEX idx_exercise_muscles_muscle ON exercise_muscles(muscle_group_id);
 - `contribution_weight` 是 fatigue 算法的核心输入
 - 卧推 100 kg 的负荷不能只算给胸；三头和肩前束也要按比例累加
 - 这是「业务建模 → 算法层」一致性的关键
-- 面试拷问「多对多怎么用」时，能直接讲算法在用这个字段
 
 ### 2.6 训练日志（一次训练）
 
@@ -213,7 +212,7 @@ CREATE TABLE messages (
 CREATE INDEX idx_messages_session ON messages(session_id, created_at);
 ```
 
-### 2.10 工具调用日志（可观测性 + 面试素材）
+### 2.10 工具调用日志（可观测性）
 
 ```sql
 CREATE TABLE tool_call_logs (
@@ -233,7 +232,7 @@ CREATE INDEX idx_tool_call_logs_user_time ON tool_call_logs(user_id, created_at 
 CREATE INDEX idx_tool_call_logs_tool ON tool_call_logs(tool_name);
 ```
 
-**面试讲点**：你可以查这张表，统计「最常被调用的工具是哪个」「平均工具响应时间多少」「有多少次工具调用失败」——这些都是项目运营观察的真实数据。
+**用途**：可以查这张表，统计「最常被调用的工具是哪个」「平均工具响应时间多少」「有多少次工具调用失败」——这些都是项目运营观察的真实数据。
 
 ### 2.11 知识库分块（扩展阶段 RAG）
 

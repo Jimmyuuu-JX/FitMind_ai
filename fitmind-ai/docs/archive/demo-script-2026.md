@@ -1,5 +1,7 @@
 # FitMind AI Demo Script
 
+> **存档。** 这是项目作为求职作品时期写的讲解与演示材料，不再维护，内容可能与现状不符。了解当前项目请从 [`../PROJECT_BRIEF.md`](../PROJECT_BRIEF.md) 和 [`../INDEX.md`](../INDEX.md) 开始。
+
 ## 1. Positioning
 
 FitMind AI 当前最适合演示成一个 evidence-backed training analysis product，而不是一个自由聊天机器人。

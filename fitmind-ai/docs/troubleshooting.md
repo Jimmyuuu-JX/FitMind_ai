@@ -1,6 +1,6 @@
 ﻿# 踩坑日记（troubleshooting.md）
 
-> 这份文档记录开发过程中的所有「卡了 30 分钟以上」的问题。 **核心价值**：这是你面试时最好的素材库——「你这个项目踩过什么坑」的回答全从这里出。 每次遇到坑，必须当天记。隔天就忘了细节。
+> 这份文档记录开发过程中的所有「卡了 30 分钟以上」的问题。 每次遇到坑，必须当天记。隔天就忘了细节。
 
 ------
 
@@ -30,8 +30,6 @@
 ### 经验教训
 下次怎么避免 / 类似问题怎么排查。
 
-### 面试讲点
-能否包装成 STAR 故事讲给面试官？
 ```
 
 ------
@@ -72,7 +70,7 @@
 ### 阶段 4（SSE）可能遇到
 
 - `#sse` Express 默认开 gzip，会破坏 SSE，需要禁用对该路由的压缩
-- `#sse` Nginx / Render 反向代理默认有 buffer，需要 `X-Accel-Buffering: no` header
+- `#sse` Nginx 等反向代理默认有 buffer，需要 `X-Accel-Buffering: no` header
 - `#sse` AbortController 中断后后端要清理 Anthropic stream
 - `#streaming` ReadableStream 的 chunk 边界不一定对应 SSE event 边界，需要 buffer 拼接
 - `#streaming` UTF-8 多字节字符在 chunk 边界被切（用 TextDecoder + stream:true 解决）
@@ -101,12 +99,11 @@
 
 ------
 
-## 写好踩坑日记的 4 条原则
+## 写好踩坑日记的 3 条原则
 
 1. **当天写**：脑子里还热乎的时候记，第二天细节就模糊了
 2. **写根因不写表面**：表面是「报错 X」，根因可能是「Express 默认压缩」
 3. **写解决方案 + 代码片段**：贴关键 diff 比写「我改了一下」有用
-4. **写面试讲点**：每个坑都问自己——「这个故事能不能 STAR 讲给面试官？」如果能就标记 `[面试素材]`
 
 ------
 
@@ -114,7 +111,6 @@
 
 记录时给坑打标签：
 
-- `[面试素材]` — 适合面试讲的踩坑故事
 - `[已修复]` — 问题已解决
 - `[绕过]` — 暂时绕开，未来要修
 - `[已知问题]` — 不打算修，记录为已知限制
@@ -142,9 +138,6 @@
 
 ### 经验教训
 凡是验证中文 prompt、assistant intent classification、JSON request body、PowerShell `Invoke-RestMethod` / `curl` 差异或生产 AI API 时，都要先排除请求编码问题。
-
-### 面试讲点
-这是一个适合讲“AI 行为误判不一定是模型或业务逻辑问题”的案例。先确认输入字节和请求边界，再谈 prompt / router / RAG 质量，否则很容易在错误层面调参。
 
 ## [T01] [已修复] Auth 阶段 `NodeNext` + JS repository 导致类型解析断裂
 
@@ -178,9 +171,6 @@
 - 只要项目还处在 JS repository 向 TS service 过渡阶段，就要优先补“模块边界声明”，不要假设 TS 会自动推断 JS 文件。
 - `shared` 想被 `server` / `client` 同时消费，最好后续单独把包入口和导出策略做完整，而不是直接跨目录吃源文件。
 
-### 面试讲点
-- 这是一个典型的“工程演进期类型边界问题”：不是业务逻辑写错，而是模块系统、包边界和类型系统没完全对齐。我通过补声明文件和收紧跨包 import，把问题控制在最小修改范围内，没有顺手把整层重构掉。
-
 ## [T02] [已修复] `pnpm install --force` 后 lint / package test 脚本同时漂移
 
 - **日期**：2026-04-28
@@ -210,8 +200,6 @@
 - 对工具链依赖，能不放宽到 caret 的地方尽量别放宽，尤其是 lint / parser 这一类基础设施。
 - 子包脚本如果依赖 workspace 根配置，最稳的是显式回到根目录再执行，不要假设所有工具都会正确重算相对路径。
 
-### 面试讲点
-- 这是很适合讲“工具链稳定性”的案例：业务代码没问题，真正卡人的是版本漂移和 monorepo 脚本路径假设。我没有盲目重装到能跑为止，而是把问题拆成“依赖版本”和“执行目录”两个根因分别处理。
 ## [T03] [已修复] Runtime JS repository import 指向 `env.js` 导致真实 HTTP + DB 路径 500
 
 - **日期**：2026-04-29
@@ -250,8 +238,6 @@ import { loadServerEnv } from "../env.ts";
 - JS 过渡层和 TS 入口层混用时，不能假设 `.js` 后缀在所有运行时路径上都会被自动重写到 `.ts`。
 - 真实 HTTP smoke 和 service 直接调用各自能抓到不同的问题：前者更容易打到"路由 -> controller -> service -> db"的终端关闭缺口。
 
-### 面试讲点
-- 这是一个很好的"过渡架构隐性运行时 bug"故事：静态类型和单元测试都过了，但真实请求还是会在 JS repository 边界爆掉。关键不是乱改，而是用 service 直接调用和 HTTP smoke 把问题切分开，最后定位到一行导入后缀。
 ## [T04] [已修复] Workout service 直接按 string DTO 校验真实 DB 行，导致 `Date` / `numeric` 运行时映射误报 `400`
 
 - **日期**：2026-04-29
@@ -322,8 +308,6 @@ import { loadServerEnv } from "../env.ts";
 - 只要改了本地 proxy、默认端口或 env 变量命名，就必须同步检查服务端默认值、示例 env 和启动文档。
 - 这类问题静态检查抓不住，必须靠真实 dev 启动和 HTTP 联调才能暴露。
 
-### 面试讲点
-- 这是很典型的“前后端本地开发合同漂移”问题：功能代码没坏，但默认配置已经对不上了。定位时不要只盯接口实现，要把 proxy、默认端口、示例 env 当成同一个契约面一起核对。
 ## [T06] RAG smoke and env hygiene
 
 - Do not print `.env`, `DATABASE_URL`, `VOYAGE_API_KEY`, Vercel env values, or raw DB connection strings during RAG smoke, ingestion, or eval.
