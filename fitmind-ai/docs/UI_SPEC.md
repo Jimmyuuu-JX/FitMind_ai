@@ -276,26 +276,6 @@
 颜色 + 背景：按语义色选择（见第 1.1 节语义色表），文字用语义色，背景用对应半透明
 ```
 
-### 3.3 统计格子（StatCell）
-
-用于展示数字统计（训练次数、总容量等）。
-
-```
-背景：--fm-surf（独立卡片时）或 --fm-surf2（嵌套在卡片内时）
-圆角：14px
-内边距：14px 14px
-```
-
-内容布局（从上到下）：
-1. 颜色点：4×4px 圆形，使用对应语义色，`margin-bottom: 8px`
-2. 数值：22px/800，紧贴数字后跟单位（11px/400/`--fm-tx3`，`margin-left: 2px`）
-3. 标签：11px/400/`--fm-tx3`，`margin-top: 2px`
-
-布局：
-- 3 列场景（如训练 Tab 顶部）：`grid-template-columns: repeat(3, 1fr); gap: 8px`
-- 4 列场景（如分析 Tab 总览）：`grid-template-columns: repeat(2, 1fr); gap: 8px`（移动端 2 列）
-- 3 列紧凑（如动作进展内部）：`grid-template-columns: repeat(3, 1fr); gap: 6px`，数值 16px/800
-
 ### 3.4 按钮
 
 #### 主按钮（Primary）
@@ -393,31 +373,6 @@ RPE 颜色映射：
 动效：transition: width 0.3s
 ```
 
-### 3.9 状态胶囊（StatusPill）
-
-用于 AI 助手的状态机可视化。
-
-```
-字号：11px / 700
-圆角：20px
-内边距：4px 10px
-颜色：对应状态色
-背景：状态色 + alpha 18（深色）/ 12（浅色）
-```
-
-活跃状态（thinking / tool_calling / answering）前面加一个 5×5px 脉冲圆点（`pulse` 动画）。
-
-| 状态 | 颜色 | 标签文字 |
-|------|------|----------|
-| idle | `--fm-tx3` | 空闲 |
-| thinking | `--fm-ac` | 思考中 |
-| tool_calling | `--fm-blue` | 工具调用 |
-| answering | `--fm-purple` | 回答中 |
-| done | `--fm-green` | 完成 |
-| error | `--fm-red` | 错误 |
-
----
-
 ## 4. 页面规范
 
 ### 4.0 登录页（AuthScreen）
@@ -512,7 +467,7 @@ RPE 颜色映射：
 
 #### 4.1.1 快速统计栏
 
-3 列 StatCell 网格，数据来自 training summary。
+统计条（`TrainingStatsStrip`），数据来自 training summary。
 
 | 格子 | 颜色 |
 |------|------|
@@ -533,31 +488,6 @@ RPE 颜色映射：
 语音与文本入口必须复用同一条 `parseWorkoutIntake → 动作歧义确认 → TrainingSessionComposer`
 链路。两者只在采集文字的方式上不同，不得维护两套动作识别、确认或保存逻辑。示例只作为
 `placeholder`，不能预填为真实输入值。
-
-#### 4.1.3 WorkoutForm（展开态）
-
-从 `--fm-surf` 卡片中展开（`slideUp` 动效）。
-
-**表单内容**：
-- 第一行：训练时间（datetime-local）+ 时长（number，分钟）—— 2 列 grid
-- 第二行：备注（text input）
-- 分割："训练组"标题 + "添加"按钮
-- Set 行列表：每行包含序号圆点 + 动作搜索框 + 次数 + 重量(kg) + RPE + 删除按钮
-  - Set 行背景：`--fm-surf2`，圆角 10px
-  - 序号圆点：20×20，圆形，`--fm-surf3` 背景，`--fm-tx3` 文字
-- 底部按钮行：取消（次级）+ 创建训练（主按钮，flex: 2）
-
-**Set 行中的动作搜索**：
-- 输入时调用 `searchExercises`
-- 下拉结果列表：每条显示中文名 + 英文名 + 肌群标签
-- 选中后输入框显示动作名，锁定 `exerciseId`
-
-**提交后刷新联动**（逻辑约束，不可更改）：
-1. WorkoutForm reset
-2. 刷新 workout list
-3. 刷新 training summary
-4. 刷新 recommendation context
-5. 如果已有 selected exercise → 刷新 exercise progress
 
 #### 4.1.4 训练记录页（TrainingSessionComposer）
 
@@ -611,8 +541,6 @@ RPE 颜色映射：
 **结构**（从上到下）：
 ```
 ┌─────────────────────────┐
-│  Status Bar             │  ~40px
-├─────────────────────────┤
 │  Quick Prompts          │  ~44px
 ├─────────────────────────┤
 │                         │
@@ -624,18 +552,6 @@ RPE 颜色映射：
 │  Input Bar              │  ~64px
 └─────────────────────────┘
 ```
-
-#### 4.3.1 Status Bar
-
-左侧：StatusPill（状态胶囊）+ 活跃 Tool Call 信息。
-右侧：清空对话按钮（icon button）。
-
-**Tool Call 信息**（仅在 `activeTool` 非 null 时显示）：
-```
-[tool icon] get_training_summary ● （running 时脉冲点）
-[tool icon] get_training_summary ✓ 234ms （success 时）
-```
-- monospace 字体，`--fm-blue` 色系胶囊
 
 #### 4.3.2 Quick Prompts
 
@@ -793,7 +709,7 @@ Card（--fm-surf）。头部: zap 图标 + "本周计划"（15px/700）+「放�
 
 ### 6.1 实现方式
 
-推荐使用 React Context 或 Zustand store 管理 `isDark: boolean`。
+主题状态由 `theme/ThemeContext.tsx` 的 React Context 管理。
 
 所有组件通过 theme object（`t` 变量）获取当前色值，**不直接读 CSS 变量**（因为移动端 390px 容器不一定是根元素）。
 
@@ -847,53 +763,14 @@ strokeLinejoin="round"
 4. **sessionId 跨多轮复用**：前端不重新生成，必须使用后端返回的
 5. **Quick Prompt mode/payload**：三种 mode（training_overview / exercise_progress / recommendation_context）不可更改
 6. **Exercise Progress 按钮禁用逻辑**：未选中动作时必须禁用
-7. **创建/删除 workout 后的刷新链路**：必须完整触发 workouts list + training summary + recommendation context + exercise progress（如果已选中）
+7. **创建/删除 workout 后的刷新链路**：必须完整触发 workouts list + training summary + exercise progress（如果已选中）
 8. **set_index 前端计算**：提交前按 exercise_id 分组递增
-9. **RecommendationContextPanel 定位**：确定性 preview，不是 AI 建议面板
 
 ---
 
-## 9. 文件结构建议
+## 9. 文件结构
 
-以下结构仅为建议，可根据实际重构情况调整，但主题管理和组件分层的思路应保留。
-
-```
-client/src/
-├── theme/
-│   ├── tokens.ts          // dark + light 色值 export
-│   └── ThemeContext.tsx    // isDark state + Provider
-├── components/
-│   ├── Card.tsx
-│   ├── StatCell.tsx
-│   ├── Badge.tsx
-│   ├── StatusPill.tsx
-│   ├── Pill.tsx           // RPE tag, evidence tag 等
-│   ├── ProgressBar.tsx
-│   ├── IconButton.tsx
-│   ├── Input.tsx
-│   └── Icon.tsx           // 统一 SVG 图标组件
-├── features/
-│   ├── auth/
-│   │   └── AuthScreen.tsx
-│   ├── training/
-│   │   ├── TrainingView.tsx
-│   │   ├── WorkoutForm.tsx
-│   │   ├── WorkoutCard.tsx
-│   │   └── ExerciseDictionary.tsx  // 可选独立
-│   ├── analysis/
-│   │   ├── AnalysisView.tsx
-│   │   ├── SummarySection.tsx
-│   │   ├── ExerciseProgressPanel.tsx
-│   │   └── RecommendationContextPanel.tsx
-│   └── assistant/
-│       ├── AssistantView.tsx
-│       ├── ChatMessageList.tsx
-│       ├── ChatInputBar.tsx
-│       ├── QuickPromptBar.tsx
-│       ├── StatusBar.tsx
-│       └── EvidenceBlock.tsx
-└── App.tsx                // Tab 路由 + 状态编排
-```
+客户端目录与职责以 `AGENTS.md` 第 3 节的架构清单为准（由测试守住），结构说明见 [`architecture.md`](./architecture.md) 第 2 节。
 
 ---
 

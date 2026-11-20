@@ -108,6 +108,7 @@ const serverEnvSchema = z.object({
     .default("mock")
     .catch("mock"),
   ANTHROPIC_API_KEY: optionalSecret,
+  ANTHROPIC_MODEL: optionalSecret,
   GEMINI_API_KEY: optionalSecret,
   GEMINI_MODEL: optionalSecret,
   GROQ_API_KEY: optionalSecret,
@@ -141,6 +142,7 @@ export interface ServerEnv {
     | "openai_compatible";
   anthropicApiKey?: string | undefined;
   geminiApiKey?: string | undefined;
+  anthropicModel?: string | undefined;
   geminiModel?: string | undefined;
   groqApiKey?: string | undefined;
   groqModel?: string | undefined;
@@ -173,6 +175,7 @@ const TRIMMED_ENV_KEYS = [
   "ASSISTANT_PROVIDER",
   "WORKOUT_INTAKE_LLM_PROVIDER",
   "DATA_RESIDENCY",
+  "ANTHROPIC_MODEL",
   "GEMINI_MODEL",
   "GROQ_MODEL",
   "OPENAI_COMPAT_MODEL",
@@ -262,6 +265,7 @@ export function loadServerEnv(
     workoutIntakeLlmProvider: parsed.WORKOUT_INTAKE_LLM_PROVIDER,
     anthropicApiKey: parsed.ANTHROPIC_API_KEY,
     geminiApiKey: parsed.GEMINI_API_KEY,
+    anthropicModel: parsed.ANTHROPIC_MODEL,
     geminiModel: parsed.GEMINI_MODEL,
     groqApiKey: parsed.GROQ_API_KEY,
     groqModel: parsed.GROQ_MODEL,

@@ -82,7 +82,7 @@
 
 - `athlete-profile-api.ts`：`getAthleteProfile`(GET) / `saveAthleteProfile`(PUT) + 纯 `parseInjuryTags`（逗号/空格分隔、trim、小写、去重、≤10 个 / ≤40 字）。
 - `AthleteProfileSheet.tsx`：ActionSheet 表单（目标 / 每周天数 / 器械 chip 多选 / 伤病输入），开表单 GET 预填、保存 PUT。
-- 入口随设计稿改版**从页头移进了个人 Tab**（`ProfileView.tsx`）。`AthleteProfileButton.tsx` 因此已无人引用，属待清理死代码。
+- 入口随设计稿改版**从页头移进了个人 Tab**（`ProfileView.tsx`）。
 - `http-client.ts` 的 `method` 联合含 `PUT`（本接口使用）。
 
 ### faithfulness 徽章 + 限流提示（2026-06-14，roadmap §8 FE-4）

@@ -1,4 +1,5 @@
 import { loadServerEnv } from "../../env.js";
+import { resolveAnthropicModel } from "../ai/anthropic-model.js";
 
 export {
   GROQ_DEFAULT_MODEL,
@@ -24,7 +25,6 @@ export type AssistantProviderName =
   | "groq"
   | "openai_compatible";
 
-const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 const ANTHROPIC_API_VERSION = "2023-06-01";
 /**
  * Read the configured assistant provider selection.
@@ -71,7 +71,7 @@ export function getAnthropicProviderConfig(): AnthropicProviderConfig {
 
   return {
     apiKey: env.anthropicApiKey,
-    model: ANTHROPIC_MODEL,
+    model: resolveAnthropicModel(env.anthropicModel),
     apiVersion: ANTHROPIC_API_VERSION,
   };
 }
