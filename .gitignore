@@ -8,8 +8,5 @@ fitmind-ai/client-dev.pid
 *.env_*
 .env_*
 
-# Beads / Dolt files (added by bd init)
-.dolt/
+# Local database files
 *.db
-.beads-credential-key
-.beads/proxieddb/
