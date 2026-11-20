@@ -1,7 +1,6 @@
 import { useState } from "react";
 
 import type { ExercisePickerProps } from "./ExercisePicker";
-import type { WorkoutFormProps } from "./WorkoutForm";
 import type { TrainingSummary } from "./training-summary-api";
 import type { TrainingSessionInitialDraft } from "./training-session-draft";
 import type { UseCurrentPlanResult } from "../assistant/use-current-plan";
@@ -24,7 +23,8 @@ export interface TrainingViewProps {
   onOpenAssistant: () => void;
   summary: TrainingSummary | null;
   summaryLoading: boolean;
-  workoutFormProps: WorkoutFormProps;
+  onWorkoutCreated?: (() => Promise<void>) | undefined;
+  token: string | null;
 }
 
 export function TrainingView(props: TrainingViewProps) {
@@ -138,7 +138,7 @@ export function TrainingView(props: TrainingViewProps) {
             setIsComposerOpen(true);
             setIntakeEntryMode(null);
           }}
-          token={props.workoutFormProps.token}
+          token={props.token}
         />
       </ActionSheet>
 
@@ -157,7 +157,7 @@ export function TrainingView(props: TrainingViewProps) {
           <ExercisePicker
             {...props.exercisePickerProps}
             openLibraryOnMount={false}
-            token={props.workoutFormProps.token}
+            token={props.token}
           />
         </div>
       </Card>
@@ -173,12 +173,12 @@ export function TrainingView(props: TrainingViewProps) {
           setComposerMode("create_active");
         }}
         onCreated={async () => {
-          await props.workoutFormProps.onCreated?.();
+          await props.onWorkoutCreated?.();
           setIsComposerOpen(false);
           setPendingInitialDraft(null);
           setComposerMode("create_active");
         }}
-        token={props.workoutFormProps.token}
+        token={props.token}
       />
     </section>
   );

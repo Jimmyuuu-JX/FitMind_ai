@@ -201,10 +201,8 @@ export function App() {
           onOpenAssistant={() => setActiveTab("assistant")}
           summary={trainingSummary.summary}
           summaryLoading={trainingSummary.isLoading}
-          workoutFormProps={{
-            onCreated: handleWorkoutCreated,
-            token: auth.token,
-          }}
+          onWorkoutCreated={handleWorkoutCreated}
+          token={auth.token}
         />
       </section>
 
