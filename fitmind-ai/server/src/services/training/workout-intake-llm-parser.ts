@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { loadServerEnv } from "../../env.js";
+import { resolveAnthropicModel } from "../ai/anthropic-model.js";
 import {
   runOpenAiCompatibleChatCompletion,
   type OpenAiCompatibleChatRequest,
@@ -196,7 +197,7 @@ async function parseWithAnthropicWorkoutIntakeLlm(input: {
     },
     body: JSON.stringify({
       max_tokens: 1000,
-      model: "claude-sonnet-4-20250514",
+      model: resolveAnthropicModel(env.anthropicModel),
       system: buildWorkoutIntakeSystemPrompt(),
       messages: [
         {
