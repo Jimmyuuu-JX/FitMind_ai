@@ -477,7 +477,36 @@ When exceeded, both endpoints return:
 
 当请求携带 `session_id` 时，该会话必须属于当前认证用户。会话不存在或属于其他用户均返回同一安全响应：HTTP `404`，`error.code = "NOT_FOUND"`，`error.message = "Chat session was not found."`；接口不会向调用者披露其他用户会话是否存在。
 
-两个端点都挂 per-user 限流（见 §9）。会话历史目前没有独立的读取端点：`session_id` 由 `done` 事件回传，客户端自行保留。
+两个端点都挂 per-user 限流（见 §9）。`session_id` 由 `session` / `done` 事件回传，客户端保留它以续用会话，并用下面的端点在刷新后读回历史。
+
+### GET /api/assistant/sessions/:id/messages
+
+读回当前用户自己的一个会话，按时间先后返回用户与助手消息（鉴权）。用于刷新页面或重新打开教练页后恢复对话。
+
+- 会话不存在或属于其他用户，返回同一个 `404 NOT_FOUND`（`"Chat session was not found."`），不披露其他用户的会话是否存在。`:id` 不是 UUID 时返回 `400`。
+- 只返回 `user` 与 `assistant` 消息；不返回 `tool` 消息，也不返回 `usage`、`metadata`。
+- 助手消息的 `structured_output` 是当时流式接口 `structured_output` 事件的内容，`message_id` 已补为该行的 id；没有存结构时为 `null`。
+
+**Response 200**：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "session_id": "uuid",
+    "messages": [
+      { "id": "uuid", "role": "user", "text": "我卧推最近怎么样", "created_at": "2026-11-20T10:00:00.000Z" },
+      {
+        "id": "uuid",
+        "role": "assistant",
+        "text": "卧推这四周没有再涨……",
+        "created_at": "2026-11-20T10:00:05.000Z",
+        "structured_output": { "message_id": "uuid", "answer": { "summary": "…" } }
+      }
+    ]
+  }
+}
+```
 
 ------
 

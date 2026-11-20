@@ -136,4 +136,49 @@ describe("assistant session ownership HTTP boundary", () => {
       ),
     ).toBe(true);
   });
+
+  async function getMessages(
+    globalExists: boolean,
+    headers: Record<string, string> = { authorization: "Bearer test-token" },
+  ): Promise<{ status: number; body: unknown }> {
+    configureSessionQueries(globalExists);
+    const address = server.address();
+
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected the test server to bind to a TCP port.");
+    }
+
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/assistant/sessions/${SESSION_ID}/messages`,
+      { headers },
+    );
+
+    return { status: response.status, body: await response.json() };
+  }
+
+  it("reads back session messages only for the owner, without revealing foreign sessions", async () => {
+    const foreign = await getMessages(true);
+    const absent = await getMessages(false);
+
+    expect(foreign).toEqual({
+      status: 404,
+      body: {
+        ok: false,
+        error: { code: "NOT_FOUND", message: "Chat session was not found." },
+      },
+    });
+    expect(absent).toEqual(foreign);
+    expect(
+      poolQuery.mock.calls.every(([sql]) =>
+        typeof sql === "string" ? sql.includes("user_id = $2") : false,
+      ),
+    ).toBe(true);
+  });
+
+  it("requires authentication to read session messages", async () => {
+    const result = await getMessages(false, {});
+
+    expect(result.status).toBe(401);
+    expect(poolQuery).not.toHaveBeenCalled();
+  });
 });

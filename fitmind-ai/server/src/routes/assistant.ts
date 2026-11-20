@@ -6,6 +6,7 @@ import {
   listAssistantSavedInsightsController,
   postAssistantSavedInsightController,
 } from "../controllers/assistant-saved-insights-controller.js";
+import { getAssistantSessionMessagesController } from "../controllers/assistant-session-controller.js";
 import {
   postAssistantStreamTurnController,
   postMockAssistantTurnController,
@@ -65,6 +66,10 @@ export function createAssistantRouter(options?: AssistantRouterOptions) {
   assistantApiRouter.delete(
     "/assistant/insights/:id",
     deleteAssistantSavedInsightController,
+  );
+  assistantApiRouter.get(
+    "/assistant/sessions/:id/messages",
+    getAssistantSessionMessagesController,
   );
   assistantApiRouter.post(
     "/assistant/mock-turn",

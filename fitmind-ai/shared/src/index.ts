@@ -1,5 +1,11 @@
 export type { ApiErrorResponse, ApiResponse, ApiSuccess } from "./api-response";
 export type {
+  AssistantSessionAssistantMessageDto,
+  AssistantSessionMessageDto,
+  AssistantSessionMessagesDto,
+  AssistantSessionUserMessageDto,
+} from "./assistant-session";
+export type {
   AuthSuccessData,
   AuthUserDto,
   LoginRequest,
