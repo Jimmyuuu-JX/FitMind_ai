@@ -5,6 +5,7 @@ import {
   runMockAssistantTurn,
 } from "../services/assistant/assistant-orchestrator-service.js";
 import type { AssistantTurnExecutionResult } from "../services/assistant/assistant-orchestrator-service.js";
+import { runAssistantTurn } from "../services/assistant/coach-turn-service.js";
 import type { AssistantStreamEvent } from "../services/assistant/assistant-stream-types.js";
 import type { AssistantIpRateLimitLocals } from "../middleware/assistant-ip-rate-limit-middleware.js";
 import {
@@ -130,7 +131,7 @@ export async function postAssistantStreamTurnController(
   const startedAt = Date.now();
 
   try {
-    const result = await runMockAssistantTurn(res.locals.userId, req.body, {
+    const result = await runAssistantTurn(res.locals.userId, req.body, {
       assistantIpGuardDecision: res.locals.assistantIpGuardDecision,
       onEvent: async (event) => {
         if (event.type === "error") {

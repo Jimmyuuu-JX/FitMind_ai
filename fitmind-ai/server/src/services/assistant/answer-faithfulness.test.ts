@@ -100,6 +100,20 @@ describe("verifyAnswerFaithfulness", () => {
     expect(result.unverifiedClaims).toHaveLength(0);
   });
 
+  it("does not read the 1 in 1RM as a number", () => {
+    const result = verifyAnswerFaithfulness(
+      buildAnswer({
+        summary: "估算 1RM 维持在 12000 附近。",
+        bullets: [],
+        conclusion: "",
+        recommendation: "",
+      }),
+      [weeklyToolOutput],
+    );
+
+    expect(result).toMatchObject({ status: "verified", unverifiedClaims: [] });
+  });
+
   it("ignores structural ordinals like 第N步", () => {
     const answer = buildAnswer({
       summary: "当前记录训练次数：0 次，规划在第1步就停止了。",

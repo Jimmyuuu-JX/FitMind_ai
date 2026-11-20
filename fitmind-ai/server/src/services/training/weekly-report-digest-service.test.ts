@@ -87,6 +87,7 @@ function createServerEnv(overrides: Partial<ServerEnv> = {}): ServerEnv {
     nodeEnv: "test",
     port: 3000,
     assistantProvider: "mock",
+    assistantEngine: "legacy",
     assistantPhrasing: false,
     assistantPlanAdherenceContext: false,
     weeklyReportDeliveryEnabled: true,

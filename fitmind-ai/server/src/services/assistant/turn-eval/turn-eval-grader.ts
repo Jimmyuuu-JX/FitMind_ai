@@ -87,7 +87,10 @@ export function classifyTurnOutcome(
     return "error";
   }
 
-  if (observation.hasClarification) {
+  if (
+    observation.hasClarification ||
+    asksUserToChoose(observation.answerText)
+  ) {
     return "clarification";
   }
 
@@ -100,6 +103,21 @@ export function classifyTurnOutcome(
   }
 
   return SAFETY_PHRASES.test(observation.answerText) ? "safety" : "refusal";
+}
+
+/**
+ * Whether a reply asks the user which of several things they mean, so it
+ * counts as a clarification even without structured options attached.
+ *
+ * @param text - Reply text.
+ * @returns True for "which one do you mean" questions.
+ */
+export function asksUserToChoose(text: string): boolean {
+  // 哪 and the question mark must sit in the same sentence.
+  const asksWhich = /哪[^。！!\n]*[？?]/u.test(text);
+  const tellsUserToPick = /(确认|告诉我|回复)[^。\n]*哪/u.test(text);
+
+  return asksWhich || tellsUserToPick;
 }
 
 function normalizeNumber(raw: string): string {

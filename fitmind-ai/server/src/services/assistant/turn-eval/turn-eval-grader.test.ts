@@ -6,6 +6,7 @@ import {
   deriveTurnEvalFacts,
 } from "./turn-eval-fixture.js";
 import {
+  asksUserToChoose,
   classifyTurnOutcome,
   findUnsupportedNumbers,
   gradeTurnEvalCase,
@@ -115,6 +116,25 @@ describe("classifyTurnOutcome", () => {
     expect(
       classifyTurnOutcome(observation({ error: "AI_PROVIDER_ERROR" })),
     ).toBe("error");
+  });
+});
+
+describe("asksUserToChoose", () => {
+  it("recognizes a which-one question, with or without a question mark", () => {
+    expect(asksUserToChoose("你指的是哪一项？杠铃卧推还是上斜哑铃卧推")).toBe(
+      true,
+    );
+    expect(asksUserToChoose("告诉我指哪一个，我再给你看趋势。")).toBe(true);
+  });
+
+  it("does not treat an ordinary answer or an offer as a clarification", () => {
+    expect(asksUserToChoose("腿是最近练得最少的部位。")).toBe(false);
+    expect(asksUserToChoose("要不要我帮你排一下下周的计划？")).toBe(false);
+    expect(
+      asksUserToChoose(
+        "我还没识别出你想要哪种分析。\n如果你想看训练问题定位，可以问“卧推平台期怎么诊断？”。",
+      ),
+    ).toBe(false);
   });
 });
 

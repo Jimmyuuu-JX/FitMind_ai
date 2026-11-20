@@ -1,6 +1,7 @@
 import { ZodError } from "zod";
 
 import { createToolCallLog } from "../../../db/tool-call-log-repository.js";
+import { coachAiTools } from "./coach-tools.js";
 import { trainingAiTools } from "./training-tools.js";
 import {
   type AiToolValidationError,
@@ -11,7 +12,7 @@ import {
 } from "./tool-types.js";
 
 const aiToolRegistry = new Map<string, AiToolDefinition<unknown, unknown>>(
-  trainingAiTools.map((tool) => [
+  [...trainingAiTools, ...coachAiTools].map((tool) => [
     tool.name,
     tool as AiToolDefinition<unknown, unknown>,
   ]),

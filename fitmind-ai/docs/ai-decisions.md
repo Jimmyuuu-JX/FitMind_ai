@@ -1527,3 +1527,46 @@ Rejected:
 - Logging full tool outputs so the eval can check every number. It would grow
   the log table and conflicts with keeping sensitive health values out of logs.
 
+## [D60] A model-led coach pipeline beside the rule-routed one
+
+- **Date**: 2026-11-20
+- **Status**: Accepted / implemented, off by default (`ASSISTANT_ENGINE=legacy`)
+
+The whole-turn eval (D59) scored the rule-routed pipeline 11/26 with both the
+deterministic path and DeepSeek: the model only classified intent and chose one
+tool, and templates wrote every answer, so a better model could not change the
+result. Roadmap steps 1.2 (history) and 1.3 (multi-step tools) both need a
+different turn structure, so they are built together as a new pipeline instead
+of being added to the old one.
+
+Decision:
+
+- `ASSISTANT_ENGINE=coach` routes free-text `auto` turns to
+  `coach-turn-service.ts` when the provider is OpenAI-compatible. Structured
+  requests (quick-prompt modes, explicit ranges, tapped exercises, plan
+  preferences) stay on the rule-routed pipeline, which is also the fallback.
+- The model gets the last 8 session messages as history and can call read-only
+  tools in a loop, at most 6 model calls per turn; the last call must answer
+  in text. Three tools were added to the shared registry: `find_exercises`
+  (dictionary match ranked by the user's recent sets, which fixes the old
+  four-way bench-press clarification), `get_muscle_load`, and
+  `search_training_knowledge`.
+- Numbers still come from tools. The prompt forbids numbers that tools did not
+  return, including target weights in advice, and the server number check runs
+  on every coach answer as before. Its "1RM" false positive was fixed.
+- Budget and per-IP guards are checked before anything is written or streamed;
+  a denied turn, or a failed first model call, goes to the deterministic
+  pipeline. Safety redirects stay ahead of the model and spend no budget.
+- The default stays `legacy` until a deployment enables the coach after checking
+  the client rendering and real-device behaviour.
+
+Result: DeepSeek on the coach pipeline scored 25/26 with the gate passing
+(plan generation is step 1.6). One run used 70 model calls and about 248k
+tokens for 26 questions; the default instance budget of 500 calls a day covers
+roughly 180 coach turns.
+
+Rejected:
+
+- Adding history to the rule router. Follow-ups would still be limited by
+  keyword routing and template answers, and the work would be discarded by 1.3.
+

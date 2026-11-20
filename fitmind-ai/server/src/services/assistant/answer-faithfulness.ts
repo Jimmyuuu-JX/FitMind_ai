@@ -17,6 +17,8 @@ const RATIO_PERCENT_MULTIPLIER = 100;
  * 这些是结构性序号，不是绑定到工具数据的事实声明，校验它们会制造噪声。
  */
 const ORDINAL_STRIP_PATTERN = /第\s*\d+/gu;
+/** "1RM" names a measure; its 1 is not a claim. */
+const UNIT_NAME_STRIP_PATTERN = /\b(?:e)?1\s*RM\b/giu;
 /** UUID 形态的引用 id（workout/set/source）。 */
 const UUID_PATTERN =
   /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/giu;
@@ -86,7 +88,8 @@ export function verifyAnswerFaithfulness(
 
   const numericText = rawText
     .replace(UUID_PATTERN, " ")
-    .replace(ORDINAL_STRIP_PATTERN, " ");
+    .replace(ORDINAL_STRIP_PATTERN, " ")
+    .replace(UNIT_NAME_STRIP_PATTERN, " ");
 
   // 2) 逐个核对数字 token。
   let checkedNumbers = 0;

@@ -347,7 +347,8 @@ export interface MockAssistantTurnResponseData {
   session_id: string;
   message_id?: string | undefined;
   mode: string;
-  assistant_type: "deterministic_mock";
+  /** `coach` marks answers written by the model-led pipeline. */
+  assistant_type: "deterministic_mock" | "coach";
   intent: AssistantRoutedIntent;
   tool_calls: Array<{
     tool_name: string;

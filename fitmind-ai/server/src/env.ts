@@ -72,6 +72,13 @@ const serverEnvSchema = z.object({
     .enum(["mock", "anthropic", "groq", "openai_compatible"])
     .default("mock")
     .catch("mock"),
+  // Which turn pipeline answers free-text questions. `coach` is the model-led
+  // tool loop and only runs with an OpenAI-compatible provider; anything else
+  // (or an unknown value) keeps the rule-routed pipeline.
+  ASSISTANT_ENGINE: z
+    .enum(["legacy", "coach"])
+    .default("legacy")
+    .catch("legacy"),
   // Slice 11.3b: opt-in LLM re-phrasing of the answer summary (still gated by
   // ASSISTANT_PROVIDER=groq + runtime faithfulness fallback). Default off.
   ASSISTANT_PHRASING: booleanFlag,
@@ -125,6 +132,7 @@ export interface ServerEnv {
   databaseUrl?: string | undefined;
   jwtSecret?: string | undefined;
   assistantProvider: "mock" | "anthropic" | "groq" | "openai_compatible";
+  assistantEngine: "legacy" | "coach";
   assistantPhrasing: boolean;
   assistantPlanAdherenceContext: boolean;
   weeklyReportDeliveryEnabled: boolean;
@@ -173,6 +181,7 @@ export interface ServerEnv {
 const TRIMMED_ENV_KEYS = [
   "NODE_ENV",
   "ASSISTANT_PROVIDER",
+  "ASSISTANT_ENGINE",
   "WORKOUT_INTAKE_LLM_PROVIDER",
   "DATA_RESIDENCY",
   "ANTHROPIC_MODEL",
@@ -254,6 +263,7 @@ export function loadServerEnv(
     databaseUrl: parsed.DATABASE_URL,
     jwtSecret: parsed.JWT_SECRET,
     assistantProvider: parsed.ASSISTANT_PROVIDER,
+    assistantEngine: parsed.ASSISTANT_ENGINE,
     assistantPhrasing: parsed.ASSISTANT_PHRASING,
     assistantPlanAdherenceContext: parsed.ASSISTANT_PLAN_ADHERENCE_CONTEXT,
     weeklyReportDeliveryEnabled: parsed.WEEKLY_REPORT_DELIVERY_ENABLED,
