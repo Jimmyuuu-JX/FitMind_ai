@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
 import { HttpClientError } from "../../services/http-client";
+import { fetchAssistantSessionMessages } from "./assistant-session-api";
+import { restoreAssistantChatMessages } from "./assistant-session-restore";
+import {
+  clearStoredAssistantSessionId,
+  readStoredAssistantSessionId,
+  storeAssistantSessionId,
+} from "./assistant-session-storage";
 import { streamAssistantChat } from "./assistant-stream-api";
 import { mergeStructuredOutputIntoMessage } from "./assistant-structured-output";
 import type {
@@ -34,10 +41,17 @@ export interface UseAssistantChatResult {
 /**
  * Maintains the frontend assistant chat state machine over the SSE endpoint.
  *
+ * The current session id is remembered per user on this device, and the
+ * conversation is read back from the server when the page opens again.
+ *
  * @param token - Current in-memory auth token.
+ * @param userId - Authenticated user id, used to key the remembered session.
  * @returns Messages, stream status, tool state, and chat actions.
  */
-export function useAssistantChat(token: string | null): UseAssistantChatResult {
+export function useAssistantChat(
+  token: string | null,
+  userId: string | null = null,
+): UseAssistantChatResult {
   const [messages, setMessages] = useState<AssistantChatMessage[]>([]);
   const [status, setStatus] = useState<AssistantChatStatus>("idle");
   const [activeToolCall, setActiveToolCall] =
@@ -51,10 +65,66 @@ export function useAssistantChat(token: string | null): UseAssistantChatResult {
   const activeAbortControllerRef = useRef<AbortController | null>(null);
   const activeAssistantMessageIdRef = useRef<string | null>(null);
   const requestSequenceRef = useRef(0);
+  const lastUserIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (token && userId) {
+      lastUserIdRef.current = userId;
+    }
+  }, [token, userId]);
+
+  useEffect(() => {
+    if (!token || !userId) {
+      return;
+    }
+
+    const storedSessionId = readStoredAssistantSessionId(userId);
+
+    if (storedSessionId === null) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const restoreSequence = requestSequenceRef.current;
+
+    void fetchAssistantSessionMessages(storedSessionId, {
+      token,
+      signal: controller.signal,
+    })
+      .then((session) => {
+        // A turn sent while the restore was in flight wins over the restore.
+        if (
+          controller.signal.aborted ||
+          requestSequenceRef.current !== restoreSequence
+        ) {
+          return;
+        }
+
+        if (session === null) {
+          clearStoredAssistantSessionId(userId);
+          return;
+        }
+
+        setMessages(restoreAssistantChatMessages(session));
+        setSessionId(session.session_id);
+      })
+      .catch(() => {
+        // Keep the remembered id: a network failure is not a missing session.
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [token, userId]);
 
   useEffect(() => {
     if (token) {
       return;
+    }
+
+    if (lastUserIdRef.current !== null) {
+      clearStoredAssistantSessionId(lastUserIdRef.current);
+      lastUserIdRef.current = null;
     }
 
     activeAbortControllerRef.current?.abort();
@@ -210,7 +280,19 @@ export function useAssistantChat(token: string | null): UseAssistantChatResult {
     setActiveToolCall(null);
   }
 
+  function rememberSession(nextSessionId: string): void {
+    setSessionId(nextSessionId);
+
+    if (userId) {
+      storeAssistantSessionId(userId, nextSessionId);
+    }
+  }
+
   function clearConversation(): void {
+    if (userId) {
+      clearStoredAssistantSessionId(userId);
+    }
+
     activeAbortControllerRef.current?.abort();
     activeAbortControllerRef.current = null;
     activeAssistantMessageIdRef.current = null;
@@ -239,7 +321,7 @@ export function useAssistantChat(token: string | null): UseAssistantChatResult {
     }
 
     if (event.type === "session") {
-      setSessionId(event.session_id);
+      rememberSession(event.session_id);
       return;
     }
 
@@ -328,7 +410,7 @@ export function useAssistantChat(token: string | null): UseAssistantChatResult {
       setIsStreaming(false);
       setStatus("done");
       if (event.session_id) {
-        setSessionId(event.session_id);
+        rememberSession(event.session_id);
       }
       if (event.message_id) {
         setMessages((currentMessages) =>

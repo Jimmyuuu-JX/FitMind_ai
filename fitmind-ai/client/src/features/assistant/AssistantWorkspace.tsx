@@ -16,6 +16,8 @@ export interface AssistantWorkspaceProps {
   selectedExerciseId?: string | null | undefined;
   selectedExerciseName?: string | null | undefined;
   token: string | null;
+  /** Authenticated user id; keys the remembered coach session. */
+  userId?: string | null | undefined;
 }
 
 /**
@@ -26,7 +28,7 @@ export interface AssistantWorkspaceProps {
  * @returns Assistant tab element
  */
 export function AssistantWorkspace(props: AssistantWorkspaceProps) {
-  const chat = useAssistantChat(props.token);
+  const chat = useAssistantChat(props.token, props.userId ?? null);
   const currentPlan = props.currentPlan;
   const [promptSuggestion, setPromptSuggestion] =
     useState<AssistantPromptSuggestion>({

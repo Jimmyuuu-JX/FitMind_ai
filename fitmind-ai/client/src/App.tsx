@@ -253,6 +253,7 @@ export function App() {
           selectedExerciseId={selectedProgressExerciseId}
           selectedExerciseName={selectedProgressExerciseName}
           token={auth.token}
+          userId={auth.user?.id ?? null}
         />
       </section>
 

@@ -15,7 +15,7 @@ export interface AssistantComposerProps {
 /**
  * Assistant tab's composer card.
  *
- * The design pairs one neon 发送追问 with 清空 at 2fr/1fr. 重试 is kept as a
+ * The design pairs one neon 发送追问 with 新对话 at 2fr/1fr. 重试 is kept as a
  * third column — it is a real action with no other entry point — and while a
  * reply streams the primary button becomes 停止 in place.
  *
@@ -65,7 +65,7 @@ export function AssistantComposer(props: AssistantComposerProps) {
           style={secondaryButtonStyle(theme, props.isStreaming)}
           type="button"
         >
-          清空
+          新对话
         </button>
       </div>
     </form>
